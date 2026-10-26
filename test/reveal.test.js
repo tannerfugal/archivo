@@ -9,10 +9,10 @@ test('targeted Reveal validates paths in an independent worker while the scan qu
  await assert.rejects(service.reveal('a',['..','outside']),/Invalid/);service.settings.bindings[service.key(null,'a')].key='identity-mismatch';await assert.rejects(service.reveal('a',['copy.txt']),/offline|changed/);
 });
 test('Windows UNC Reveal measures a real local SMB share when the runner supports SMB', {skip:process.platform!=='win32'},async t=>{
- const root=temporary(t),share='ArchivoTest'+process.pid;fs.writeFileSync(path.join(root,'network.txt'),'network test');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'archivo-reveal-')),share='ArchivoTest'+process.pid;fs.writeFileSync(path.join(root,'network.txt'),'network test');
  const ps=script=>execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{encoding:'utf8',timeout:30000,windowsHide:true});
  const literal=s=>"'"+s.replace(/'/g,"''")+"'";
- try{ps(`New-SmbShare -Name ${literal(share)} -Path ${literal(root)} -FullAccess $env:USERNAME -ErrorAction Stop | Out-Null`);}catch(e){t.skip('Runner cannot create a disposable SMB share: '+e.message.slice(0,150));return;}
- t.after(()=>{try{ps(`Remove-SmbShare -Name ${literal(share)} -Force -ErrorAction Stop`);}catch{}});
+ try{ps(`New-SmbShare -Name ${literal(share)} -Path ${literal(root)} -FullAccess $env:USERNAME -ErrorAction Stop | Out-Null`);}catch(e){fs.rmSync(root,{recursive:true,force:true});t.skip('Runner cannot create a disposable SMB share: '+e.message.slice(0,150));return;}
+ t.after(()=>{try{ps(`Remove-SmbShare -Name ${literal(share)} -Force -ErrorAction Stop`);}finally{fs.rmSync(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});}});
  const unc='\\\\localhost\\'+share;const binding=sources.identify(unc,[]),at=performance.now(),fresh=sources.resolveTarget(binding),file=sources.realFile(fresh.root,['network.txt']);assert.equal(fs.readFileSync(file,'utf8'),'network test');console.log('UNC source + path validation (ms)',performance.now()-at);assert.equal(fresh.network,true);
 });

@@ -80,7 +80,11 @@
       let list=children.filter(n=>n.size>0).slice().sort((a,b)=>b.size-a.size),small=[],kept=[],total=list.reduce((s,n)=>s+n.size,0);
       // Reserve one visible aggregate for small regions. It retains every byte and child.
       for(const n of list){if(n.size/total*w*h<90||kept.length>=Math.max(0,slots-1))small.push(n);else kept.push(n);}
-      if(small.length===1&&kept.length<slots)kept.push(small[0]);else if(small.length)kept.push({name:small.length+' smaller items',size:small.reduce((s,n)=>s+n.size,0),children:small,aggregate:true,approximate:small.some(n=>n.approximate)});
+      if(small.length===1&&kept.length<slots)kept.push(small[0]);else if(small.length){
+        // Use openable buckets: a huge flat folder must not reopen as the same single aggregate forever.
+        const count=Math.min(slots-kept.length,32,Math.max(1,Math.ceil(small.length/64))),chunk=Math.ceil(small.length/count);
+        for(let i=0;i<small.length;i+=chunk){const members=small.slice(i,i+chunk);kept.push({name:members.length+' smaller items'+(count>1?' · '+(Math.floor(i/chunk)+1):''),size:members.reduce((s,n)=>s+n.size,0),children:members,aggregate:true,approximate:members.some(n=>n.approximate)});}
+      }
       list=kept;let extra=slots-list.length;
       for(const [i,r] of layout(list,x,y,w,h).entries()){
         const branchSlots=1+Math.floor(extra*r.item.size/total),tone=shade??i;
