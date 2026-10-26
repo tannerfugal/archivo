@@ -2,6 +2,14 @@
 
 A fork of [noar-justedit/archivo](https://github.com/noar-justedit/archivo), based on v1.4.0. Catalog archive drives once and search them while they are disconnected.
 
+## Added in 1.5.0 beta 2
+
+- Independent Category and Physical location trees with bulk assignment and shared view scopes.
+- Nested storage treemaps with four visible levels, wrapper-folder traversal, bounded aggregation, and paginated largest-file/folder lists.
+- Expandable content-match groups with whole-group pagination and persistent explicit selections.
+- Offline worker search with exact filenames, modified/created date ranges, drive, path, byte ranges, sorting and complete paginated counts.
+- One Add disk dialog for mounted volumes, server shares and chosen folders; independent targeted Reveal workers and timing diagnostics.
+
 ## Added in 1.5.0 beta 1
 
 - Local source bindings identify volumes and server folders without relying on drive labels.

@@ -42,12 +42,7 @@ function macInfo(root) {
 }
 function list() {
   if (process.platform === 'win32') {
-    const raw = ps('Get-CimInstance Win32_LogicalDisk | Select-Object Caption,FreeSpace,Size,FileSystem,VolumeName,DriveType,VolumeSerialNumber,ProviderName | ConvertTo-Json -Compress');
-    return (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(o=>Number(o.Size)>0).map(o=>({
-      name:o.VolumeName || o.Caption, mount_point:o.Caption+'\\', total_bytes:Number(o.Size), free_bytes:Number(o.FreeSpace), file_system:o.FileSystem,
-      vol_type:Number(o.DriveType)===4?'network':o.Caption.toUpperCase()===path.parse(process.env.SystemRoot || 'C:\\Windows').root.slice(0,2).toUpperCase()?'system':'unknown',
-      network:normalizeShare(o.ProviderName), volumeId:String(o.VolumeSerialNumber || ''), removable:Number(o.DriveType)===2,
-    }));
+    return windowsVolumes();
   }
   const mounts = execFileSync('/sbin/mount',[],LIMITS).split('\n').map(line=>{
     const m=line.match(/^(.+) on (.+) \(([^)]+)\)$/); return m ? {source:m[1],mount:m[2],network:/smbfs|nfs|afpfs|webdav/.test(m[3]),kind:m[3].split(',')[0]} : null;
@@ -61,6 +56,24 @@ function list() {
     return {name:m[5]==='/'?'Macintosh HD':path.basename(m[5]),mount_point:m[5],total_bytes:Number(m[2])*1024,free_bytes:Number(m[4])*1024,file_system:entry?.kind || '',vol_type:network?'network':m[5]==='/'?'system':'usb',network,removable:!network && m[5]!=='/'};
   }).filter(Boolean);
 }
+
+function windowsVolumes(letter) {
+  // One PowerShell startup for logical volumes AND partition identities.
+  const filter=letter ? " -Filter \"DeviceID='"+letter.toUpperCase()+":'\"" : '';
+  const raw=ps("$parts=@{}; Get-Partition -ErrorAction SilentlyContinue | Where-Object DriveLetter | ForEach-Object { $p=$_; $d=$p | Get-Disk; $parts[[string]$p.DriveLetter]=@{id=[string]$d.UniqueId;guid=[string]$p.Guid;offset=[string]$p.Offset;model=[string]$d.FriendlyName;serial=[string]$d.SerialNumber;bus=[string]$d.BusType} }; @(Get-CimInstance Win32_LogicalDisk"+filter+" | ForEach-Object { @{Caption=$_.DeviceID;FreeSpace=$_.FreeSpace;Size=$_.Size;FileSystem=$_.FileSystem;VolumeName=$_.VolumeName;DriveType=$_.DriveType;VolumeSerialNumber=$_.VolumeSerialNumber;ProviderName=$_.ProviderName;hardware=$parts[$_.DeviceID.Substring(0,1)]} }) | ConvertTo-Json -Depth 5 -Compress");
+  return (Array.isArray(raw)?raw:raw?[raw]:[]).filter(o=>Number(o.Size)>0).map(o=>({name:o.VolumeName||o.Caption,mount_point:o.Caption+'\\',total_bytes:Number(o.Size),free_bytes:Number(o.FreeSpace),file_system:o.FileSystem,vol_type:Number(o.DriveType)===4?'network':o.Caption.toUpperCase()===path.parse(process.env.SystemRoot||'C:\\Windows').root.slice(0,2).toUpperCase()?'system':'unknown',network:normalizeShare(o.ProviderName),volumeId:String(o.VolumeSerialNumber||''),removable:Number(o.DriveType)===2,hardware:o.hardware||{}}));
+}
+function targetedVolumes(root) {
+  if(process.platform==='win32')return /^\\\\/.test(root)?[]:windowsVolumes(/^([a-z]):/i.exec(root)?.[1]);
+  return execFileSync('/sbin/mount',[],LIMITS).split('\n').map(line=>{const m=line.match(/^(.+) on (.+) \(([^)]+)\)$/);if(!m)return null;const network=/smbfs|nfs|afpfs|webdav/.test(m[3])?(normalizeShare(m[1])||m[3].split(',')[0]+'://'+m[1].replace(/^.*@/,'')):'';return {mount_point:m[2],name:path.basename(m[2]),network,vol_type:network?'network':'unknown'};}).filter(Boolean);
+}
+function resolveTarget(binding) {
+  if(!binding)throw Error('Source is not linked on this computer. Use Locate source.');
+  try{return match(binding,[identify(binding.root,targetedVolumes(binding.root))]);}catch{}
+  // A moved mount / changed drive letter needs discovery; ordinary clicks do not.
+  return resolve(binding);
+}
+
 function identify(root, volumes) {
   root=fs.realpathSync(path.resolve(root));
   if (!fs.statSync(root).isDirectory()) throw Error('Choose a folder or mounted drive.');
@@ -77,9 +90,9 @@ function identify(root, volumes) {
     relative=path.relative(d.MountPoint || vol?.mount_point || '/',root).split(path.sep).join('/');
     model=d.MediaName || ''; serial=d.MediaSerialNumber || ''; iface=d.BusProtocol || '';
   } else if (vol) {
-    let d=null;
+    let d=vol.hardware || null;
     const letter=/^([A-Za-z]):/.exec(vol.mount_point)?.[1];
-    if (letter) {
+    if (letter && !d) {
       try { d=ps('$p = Get-Partition -DriveLetter '+letter+' -ErrorAction Stop; $d = $p | Get-Disk; @{ id=[string]$d.UniqueId; guid=[string]$p.Guid; offset=[string]$p.Offset; model=[string]$d.FriendlyName; serial=[string]$d.SerialNumber; bus=[string]$d.BusType } | ConvertTo-Json -Compress'); } catch {}
     }
     if (d?.id) key='winvol:'+d.id.trim()+':'+(d.guid || d.offset)+':'+vol.volumeId;
@@ -115,4 +128,4 @@ function resolve(binding) {
   for (const root of [...new Set(roots)]) { try { candidates.push(identify(root,vols)); } catch {} }
   return match(binding,candidates);
 }
-module.exports={list,identify,resolve,same,match,safeJoin,realFile,inside,normalizeShare};
+module.exports={list,identify,resolve,resolveTarget,same,match,safeJoin,realFile,inside,normalizeShare};

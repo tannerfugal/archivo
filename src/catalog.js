@@ -21,6 +21,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const organization = require('./organization');
 
 const MAX_DEPTH   = 256;
 const ID_RE       = /^[A-Za-z0-9_-]{1,64}$/;
@@ -49,6 +50,7 @@ function cleanNode(n) {
   const isDir = n.type === 'dir';
   const out = { type: isDir ? 'dir' : 'file', name: name(n.name), size: size(n.size), modified: text(n.modified, 32) };
   if (typeof n.mtime_ms === 'number' && Number.isFinite(n.mtime_ms) && n.mtime_ms >= 0) out.mtime_ms = n.mtime_ms;
+  if (typeof n.created_ms === 'number' && Number.isFinite(n.created_ms) && n.created_ms > 0) out.created_ms = n.created_ms;
   if (isDir) out.children = [];
   return out;
 }
@@ -93,6 +95,7 @@ function sanitizeCatalog(data) {
   if (!data || typeof data !== 'object' || !Array.isArray(data.disks)) {
     throw new Error('This file is not an archivo catalog.');
   }
+  const groups = organization.clean(data.organization);
   const used = new Set();
   const disks = [];
   for (const d of data.disks) {
@@ -115,6 +118,7 @@ function sanitizeCatalog(data) {
         ? Math.floor(d.file_count) : countFiles(tree),
       tree,
     };
+    for (const [field,kind] of [['categoryId','categories'],['locationId','locations']]) if (groups[kind].some(n=>n.id===d[field])) disk[field]=d[field];
     if (VOL_TYPES.has(d.vol_type)) disk.vol_type = d.vol_type;
     if (d.skipped && typeof d.skipped.count === 'number' && d.skipped.count > 0) {
       disk.skipped = { count: Math.floor(d.skipped.count),
@@ -122,7 +126,7 @@ function sanitizeCatalog(data) {
     }
     disks.push(disk);
   }
-  return { disks };
+  return { disks, organization: groups };
 }
 
 module.exports = { sanitizeCatalog, MAX_DEPTH };

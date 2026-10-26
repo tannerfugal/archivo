@@ -35,8 +35,8 @@
       return (nodes || []).map(n => {
         const seg = segments.concat(n.name), children = n.type === 'dir' ? convert(n.children, disk, seg) : null, b = bytes(n.size);
         return { name: n.name, diskId: disk.id, segments: seg, children,
-          size: children ? children.reduce((s,c) => s + c.size, 0) : b.value,
-          approximate: children ? children.some(c => c.approximate) : !b.exact };
+          size: children?.length ? children.reduce((s,c) => s + c.size, 0) : b.value,
+          approximate: children?.length ? children.some(c => c.approximate) : children ? b.value>0 || !b.exact : !b.exact };
       });
     }
     const children = (disks || []).map(d => {
@@ -60,5 +60,38 @@
     }
     split(sorted,x,y,w,h); return result;
   }
-  return { bytes, flatten, candidates, tree, layout };
+  function duplicateGroups(report,includeOther=false){
+    const groups=[],other=[];
+    for(const sizeGroup of report?.groups||[]){const hashes=new Map(),possible=[];
+      for(const item of sizeGroup.items){if(item.status==='Verified'&&item.hash){if(!hashes.has(item.hash))hashes.set(item.hash,[]);hashes.get(item.hash).push(item);}else if(['Possible','Offline','Changed','Unreadable'].includes(item.status))possible.push(item);else other.push(item);}
+      for(const[hash,items]of hashes)if(items.length>1)groups.push({id:'hash:'+hash,state:'Verified',size:sizeGroup.size,items,duplicateBytes:(items.length-1)*sizeGroup.size});else other.push(...items);
+      if(possible.length)groups.push({id:'possible:'+sizeGroup.size,state:'Possible matches',size:sizeGroup.size,items:possible,duplicateBytes:Math.max(0,possible.length-1)*sizeGroup.size});
+    }
+    if(includeOther)for(const item of other)groups.push({id:'other:'+item.id,state:item.status,size:item.size,items:[item],duplicateBytes:0});
+    return {groups,otherCount:other.length};
+  }
+  function descendants(node, folders) {
+    const out=[],stack=[...(node.children||[])];while(stack.length){const n=stack.pop();if(Boolean(n.children)===folders)out.push(n);if(n.children)for(const child of n.children)stack.push(child);}return out;
+  }
+  function nested(node,width=1000,height=600,depth=4,budget=4000){
+    const result=[];
+    function draw(children,x,y,w,h,levels,slots,shade,chain=new Set()){
+      if(!children?.length||slots<1||w<=0||h<=0)return;
+      let list=children.filter(n=>n.size>0).slice().sort((a,b)=>b.size-a.size),small=[],kept=[],total=list.reduce((s,n)=>s+n.size,0);
+      // Reserve one visible aggregate for small regions. It retains every byte and child.
+      for(const n of list){if(n.size/total*w*h<90||kept.length>=Math.max(0,slots-1))small.push(n);else kept.push(n);}
+      if(small.length===1&&kept.length<slots)kept.push(small[0]);else if(small.length)kept.push({name:small.length+' smaller items',size:small.reduce((s,n)=>s+n.size,0),children:small,aggregate:true,approximate:small.some(n=>n.approximate)});
+      list=kept;let extra=slots-list.length;
+      for(const [i,r] of layout(list,x,y,w,h).entries()){
+        const branchSlots=1+Math.floor(extra*r.item.size/total),tone=shade??i;
+        let item=r.item;
+        // Wrapper folders do not consume the visible detail depth.
+        if(!item.aggregate&&item.segments?.length){let wrapper=item;const names=[];while(wrapper.children?.length===1&&wrapper.children[0].children&&!chain.has(wrapper)){chain.add(wrapper);names.push(wrapper.name);wrapper=wrapper.children[0];}if(wrapper!==item)item={...wrapper,name:names.concat(wrapper.name).join(' / ')};}
+        result.push({...r,item,level:depth-levels,tone});
+        if(levels>1&&item.children&&branchSlots>1&&r.w>32&&r.h>40)draw(item.children,r.x+2,r.y+20,r.w-4,r.h-22,levels-1,branchSlots-1,item.diskId&&item.segments?.length===0?null:tone,new Set(chain));
+      }
+    }
+    draw(node.children,0,0,width,height,depth,budget,null);return result;
+  }
+  return { bytes, flatten, candidates, tree, layout, nested, descendants, duplicateGroups };
 });

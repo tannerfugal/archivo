@@ -224,7 +224,7 @@ app.whenReady().then(() => {
   }
 });
 app.on('before-quit', () => { quitting = true; });
-app.on('will-quit', () => { clearInterval(timer); service.jobs.stop(); });
+app.on('will-quit', () => { clearInterval(timer); service.jobs.stop();service.revealJobs.stop();service.searcher.stop(); });
 
 app.on('window-all-closed', () => {
   if (quitting || process.env.ARCHIVO_TEST_MODE) app.quit();
@@ -427,6 +427,7 @@ ipcMain.handle('volumes:list', () => service.jobs.run('list'));
 ipcMain.handle('volumes:info', async (_, root) => { const s = await service.jobs.run('identify', { root }); return { model:s.model,serial:s.serial,iface:s.iface }; });
 ipcMain.handle('volumes:cancel-scan', () => { service.cancel(); return true; });
 ipcMain.handle('volumes:scan', (_, root) => service.scan(root));
+ipcMain.handle('fork:search', (_, query) => service.searcher.search(query));
 ipcMain.handle('fork:context', (_, data) => service.context(data));
 ipcMain.handle('fork:status', () => ({ ...service.status(), sources: service.sourceStatus(), login: loginSettings().openAtLogin }));
 ipcMain.handle('fork:link-scan', (_, diskId, token) => service.linkScanned(diskId, token));
@@ -448,7 +449,7 @@ ipcMain.handle('fork:pick-source', async () => {
   const source = await service.jobs.run('identify', { root: choice.filePaths[0] });
   return { ...source, name: path.basename(source.root) || source.name, mount_point: source.root };
 });
-ipcMain.handle('fork:reveal', async (_, diskId, segments) => { const r = await service.reveal(diskId, segments); shell.showItemInFolder(r.file); return true; });
+ipcMain.handle('fork:reveal', async (_, diskId, segments) => { const r = await service.reveal(diskId, segments); const at=performance.now();shell.showItemInFolder(r.file);r.timings.shellDispatch=performance.now()-at;service.recordReveal({diskId,network:r.source.network,timings:r.timings});console.info('Reveal timings (ms)',JSON.stringify(r.timings));return {timings:r.timings}; });
 ipcMain.handle('fork:schedule-save', (_, input) => service.addSchedule(input));
 ipcMain.handle('fork:schedule-action', (_, id, action) => service.scheduleAction(id, action));
 ipcMain.handle('fork:schedule-run', (_, id) => service.runSchedule(id));

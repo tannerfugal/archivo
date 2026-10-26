@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('archivo', {
   onUpdateNone:      cb    => ipcRenderer.on('update-none', (_, d) => cb(d)),
 
   context: data => ipcRenderer.invoke('fork:context', data),
+  searchCatalog: query => ipcRenderer.invoke('fork:search', query),
   toolsStatus: () => ipcRenderer.invoke('fork:status'),
   linkScan: (diskId, token) => ipcRenderer.invoke('fork:link-scan', diskId, token),
   resolveSource: diskId => ipcRenderer.invoke('fork:resolve', diskId),

@@ -245,13 +245,13 @@ function csvField(v) {
 // Directories are skipped on purpose — the smallest useful export for a
 // team to search/filter in Google Sheets.
 async function exportCsv() {
-  const rows = ['Disk,Path,Size,Modified'];
+  const rows = ['Disk,Path,Size,Modified,Created,Category,Physical location'];
   for (const d of DB.disks) {
     (function walk(nodes, prefix) {
       for (const n of nodes) {
         const full = prefix ? prefix + '/' + n.name : n.name;
         if (n.type === 'file') {
-          rows.push([csvField(d.label), csvField(full), csvField(n.size || ''), csvField(n.modified || '')].join(','));
+          rows.push([csvField(d.label), csvField(full), csvField(n.size || ''), csvField(n.modified || ''),csvField(n.created_ms?new Date(n.created_ms).toISOString():''),...organizationPaths(d).map(csvField)].join(','));
         } else {
           walk(n.children || [], full);
         }
@@ -275,7 +275,7 @@ async function exportHtmlViewer() {
   for (const d of DB.disks) for (const n of (d.tree || [])) getDirSize(n);
   const payload = DB.disks.map(d => ({
     label: d.label, model: d.model, serial: d.serial, total: d.total, free: d.free,
-    iface: d.iface, scanned: d.scanned, note: d.note || '', tree: d.tree || []
+    iface: d.iface, scanned: d.scanned, category:organizationPaths(d)[0],location:organizationPaths(d)[1], note: d.note || '', tree: d.tree || []
   }));
   try {
     const filePath = await window.archivo.exportHtml({
@@ -346,7 +346,7 @@ function wireButtons() {
 
   // Export (CSV / HTML)
   g('btn-pick-source').addEventListener('click', async () => {
-    try { const vol = await window.archivo.pickSource(); if (vol) { await showAddDisk(); selectVol(vol); } } catch (e) { toast(e.message, 'err'); }
+    try { const vol = await window.archivo.pickSource(); if (vol) { selectVol(null, vol); } } catch (e) { toast(e.message, 'err'); }
   });
   g('btn-export-data').addEventListener('click', () => openExport());
   g('exp-cancel').addEventListener('click', () => g('exp-ov').classList.remove('open'));
@@ -429,7 +429,7 @@ function wireSearchFilters() {
       el.setAttribute('aria-pressed', 'true');
       srchFilter = el.dataset.f;
       const q = g('search-inp').value;
-      if (q.trim().length >= 2) execSearch(q);
+      execSearch(q);
     });
   });
 }
@@ -456,7 +456,7 @@ function wireColSort() {
    columns were cut off and unreachable). */
 let userNameW = 340;
 const NAME_MIN = 160, NOTE_MIN = 80;
-function colVar(v) { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(v)) || 0; }
+function colVar(v) { return parseFloat(getComputedStyle(g('cat')||document.documentElement).getPropertyValue(v)) || 0; }
 function colAvail() {
   const hdr = g('col-hdr');
   if (!hdr || !hdr.clientWidth) return 0;
@@ -656,6 +656,7 @@ function updateTitleBar() {
 }
 
 function markDirty() {
+  if(typeof searchInvalidate==='function')searchInvalidate();
   if (window.archivo?.context) window.archivo.context(DB).catch(() => {});
   if (!dirty) { dirty = true; try { window.archivo.setDirty(true); } catch (e) {} }
   updateTitleBar();
@@ -750,6 +751,8 @@ function closeDatabase() {
    REFRESH
 ════════════════════════════════════════════════ */
 function refreshAll() {
+  if(typeof renderOrganization==='function')renderOrganization();
+  if(typeof searchInvalidate==='function')searchInvalidate();
   if (typeof forkRefresh === 'function') forkRefresh();
   renderTree();
   updateSB();
@@ -773,7 +776,7 @@ function sortBy(k) {
   renderTree();
 }
 function sorted() {
-  const d = [...DB.disks], dir = sortAsc ? 1 : -1;
+  const d = [...(typeof scopedDisks==='function'?scopedDisks():DB.disks)], dir = sortAsc ? 1 : -1;
   switch(sortK) {
     case 'size': return d.sort((a,b)=>(pgb(a.total)-pgb(b.total))*dir);
     case 'free': return d.sort((a,b)=>(pgb(a.free)-pgb(b.free))*dir);
@@ -1066,6 +1069,7 @@ function updateInsp() {
     g('in-name').addEventListener('blur',  () => saveName(d.id));
     g('in-name').addEventListener('keydown', e => { if(e.key==='Enter') e.target.blur(); });
     g('btn-save-note').addEventListener('click', () => saveNote(d.id));
+    if(typeof inspectorOrganization==='function')inspectorOrganization(d);
   } else {
     const n=selected.node;
     if (!n) { body.innerHTML='<div class="ie">' + ico('info', 26) + 'Select an item</div>'; return; }
@@ -1079,7 +1083,7 @@ function updateInsp() {
         ${(isDir ? getDirSize(n) : n.size) ? `<div class="ir"><span class="ik">Size</span><span class="iv v">${esc(fmtB(isDir ? getDirSize(n) : n.size))}</span></div>` : ''}
         ${isDir&&n.children?`<div class="ir"><span class="ik">Items</span><span class="iv">${n.children.length}</span></div>`:''}
         ${ext?`<div class="ir"><span class="ik">Extension</span><span class="iv">.${esc(ext)}</span></div>`:''}
-        <div class="ir"><span class="ik">Modified</span><span class="iv">${esc(n.modified||'—')}</span></div>
+        <div class="ir"><span class="ik">Created</span><span class="iv">${esc(n.created_ms?new Date(n.created_ms).toLocaleString():'Unknown')}</span></div><div class="ir"><span class="ik">Modified</span><span class="iv">${esc(n.modified||'—')}</span></div>
         <div class="ir"><span class="ik">Disk</span><span class="iv v">${esc(selected.disk.label)}</span></div>
       </div>`;
   }
@@ -1120,7 +1124,7 @@ function realModel(s) { return realSerial(s); }   // same rule: "—" means unkn
 
 async function showAddDisk() {
   if (!docOpen || busy()) return;
-  pendingVol = null; pendingInfo = null;
+  pendingVol = null; pendingInfo = null;g('scan-root').textContent='Select a mounted disk, server share, or folder.';
   ['add-label','add-note','add-model','add-serial','add-total','add-free'].forEach(id=>{g(id).value='';});
   g('btn-confirm-add').disabled = true;
   g('btn-confirm-add').textContent = 'Scan & add';
@@ -1178,8 +1182,8 @@ async function refreshVols() {
 function selectVol(el, vol) {
   if (scanning) return;
   document.querySelectorAll('.vol-item').forEach(x => { x.classList.remove('sel'); x.setAttribute('aria-pressed', 'false'); });
-  el.classList.add('sel');
-  el.setAttribute('aria-pressed', 'true');
+  if(el){el.classList.add('sel');el.setAttribute('aria-pressed', 'true');}
+  g('scan-root').textContent=vol.mount_point;
   pendingVol = vol;
   g('add-label').value  = vol.name;
   g('add-total').value  = fmtB(vol.total_bytes);
@@ -1320,7 +1324,7 @@ async function confirmAddDisk() {
   if (existing) {
     const bySerial = scanData.serial && realSerial(existing.serial) === scanData.serial;
     showModal('Disk already in catalog',
-      '<strong>' + esc(existing.label) + '</strong> is already in your catalog (' + (bySerial ? 'same serial number' : 'same name') + ').<br><br>' +
+      '<strong>' + esc(existing.label) + '</strong> is already linked to this source on this computer.<br><br>' +
       'Update it with the new scan (' + res.fileCount.toLocaleString() + ' files), or add a separate entry?',
       [
         { label:'Cancel',     cls:'btn-g', fn:hideModal },
@@ -1432,7 +1436,7 @@ async function runUpdateScan(disk, vol) {
   // Open the Add Disk modal purely to reuse its progress UI.
   await showAddDisk();
   if (g('add-modal').style.display !== 'flex') return;
-  pendingVol = vol;
+  pendingVol = vol;g('scan-root').textContent=vol.mount_point;
   g('add-label').value  = disk.label;
   g('add-total').value  = fmtB(vol.total_bytes);
   g('add-free').value   = fmtB(vol.free_bytes);
@@ -1503,7 +1507,7 @@ function deleteSelected() {
    only for the results it shows. Same speed in practice, a fraction of the
    memory.
 ════════════════════════════════════════════════ */
-const SRCH_CAP = 600;
+
 let srchResults = [];     // results on screen: [{ disk, node|null, pp:[names] }]
 
 function extOf(name) { const s = String(name), i = s.lastIndexOf('.'); return i > 0 ? s.slice(i + 1).toLowerCase() : ''; }
@@ -1525,78 +1529,8 @@ function matchesFilter(n) {
   return true;
 }
 
-function onSearch(q) {
-  clearTimeout(srchTimer);
-  g('search-clear').style.display = q.trim() ? 'inline-flex' : 'none';
-  if (!q.trim() || q.trim().length < 2) {
-    // Too short — just hide results panel, but DO NOT touch the input value
-    hideSearchPanel();
-    return;
-  }
-  srchTimer = setTimeout(() => execSearch(q), 150);
-}
-
-function execSearch(q) {
-  const raw = q.trim(), ql = raw.toLowerCase();
-  if (!docOpen || ql.length < 2) return;
-  g('tree-scroll').style.display = 'none';
-  g('srch-panel').classList.add('on');
-
-  const res = [];
-  let total = 0;
-  for (const disk of DB.disks) {
-    if (srchFilter === 'all' && String(disk.label).toLowerCase().includes(ql)) {
-      total++;
-      if (res.length < SRCH_CAP) res.push({ disk, node: null, pp: [] });
-    }
-    // Depth-first walk; `names` holds the folders above the current node.
-    const names = [], stack = [{ list: disk.tree || [], i: 0 }];
-    while (stack.length) {
-      const top = stack[stack.length - 1];
-      if (top.i >= top.list.length) { stack.pop(); names.pop(); continue; }
-      const n = top.list[top.i++];
-      if (String(n.name).toLowerCase().includes(ql) && matchesFilter(n)) {
-        total++;
-        if (res.length < SRCH_CAP) res.push({ disk, node: n, pp: names.concat(n.name) });
-      }
-      if (n.type === 'dir' && n.children && n.children.length) {
-        names.push(n.name);
-        stack.push({ list: n.children, i: 0 });
-      }
-    }
-  }
-  srchResults = res;
-  g('sc').textContent = total > SRCH_CAP
-    ? total.toLocaleString() + ' results (showing ' + SRCH_CAP + ')'
-    : total.toLocaleString() + ' result' + (total !== 1 ? 's' : '');
-
-  if (!res.length) {
-    g('srch-list').innerHTML =
-      '<div class="srch-empty">' + ico('search', 26) +
-        '<div>No results for “' + esc(raw) + '”</div>' +
-        '<div class="srch-empty-s">' + (srchFilter !== 'all' ? 'Try the All filter, or part of the name.' : 'Check the spelling, or try part of the name.') + '</div>' +
-      '</div>';
-    return;
-  }
-
-  // Results arrive disk by disk: one group per disk, in catalog order.
-  const groups = [];
-  res.forEach((r, i) => {
-    if (!groups.length || groups[groups.length - 1].disk !== r.disk) groups.push({ disk: r.disk, rows: [] });
-    const nm = r.node ? r.node.name : r.disk.label;
-    const ic = !r.node ? ico('hard-drive', 15) : r.node.type === 'dir' ? ico('folder', 15) : fileIcon(r.node.name);
-    const sz = r.node ? fmtB(r.node.type === 'dir' ? getDirSize(r.node) : (r.node.size || 0)) : '';
-    const dt = r.node ? (r.node.modified || '') : String(r.disk.scanned || '').slice(0, 10);
-    const path = [r.disk.label].concat(r.pp).join('/');
-    groups[groups.length - 1].rows.push('<div class="sr" tabindex="0" role="button" data-i="' + i + '">' +
-      '<div class="sr-ic">' + ic + '</div><div class="sr-nm">' + hlMatch(nm, raw) + '</div>' +
-      '<div class="sr-dk">' + esc(r.disk.label) + '</div>' +
-      '<div class="sr-pt" title="' + esc(path) + '">' + esc(path) + '</div>' +
-      '<div class="sr-sz">' + esc(sz) + '</div><div class="sr-dt">' + esc(dt) + '</div>' +
-    '</div>');
-  });
-  g('srch-list').innerHTML = groups.map(gr => grpHead(gr.disk, gr.rows.length) + gr.rows.join('')).join('');
-}
+function onSearch(q) {clearTimeout(srchTimer);srchTimer=setTimeout(()=>execSearch(q),150);}
+async function execSearch(q) {if(typeof advancedSearch==='function')return advancedSearch(q);}
 function grpHead(disk, n) { return '<div class="sr-grp">' + ico('hard-drive', 13) + ' ' + esc(disk.label) + ' · ' + n + '</div>'; }
 
 // Highlight the match: cut the raw name first, escape each piece after, so
@@ -1626,6 +1560,7 @@ function hideSearchPanel() {
 }
 
 function clearSearch() {
+  if(typeof resetAdvancedSearch==='function')resetAdvancedSearch();
   clearTimeout(srchTimer);
   g('search-inp').value = '';
   g('search-clear').style.display = 'none';
@@ -1784,7 +1719,7 @@ function updateUiState() {
   const locked = scanning || (typeof forkBusy !== 'undefined' && !!forkBusy);
   const open = docOpen, n = DB.disks.length;
   const set = (id, on) => { const b = g(id); if (b) b.disabled = !on; };
-  set('btn-pick-source', open && !locked);
+  set('btn-pick-source', open && !scanning);
   set('btn-add-disk',    open && !locked);
   set('btn-import',      !locked);
   set('btn-export',      open && !locked);

@@ -104,7 +104,7 @@ function renderDisks(){
   DATA.forEach((d,i)=>{
     const b=el('button','dk'+(i===cur?' sel':''));
     b.appendChild(el('span','n',d.label||'Untitled disk'));
-    b.appendChild(el('span','m',[d.total, d.scanned ? 'scanned '+String(d.scanned).slice(0,10) : ''].filter(Boolean).join(' · ')));
+    b.appendChild(el('span','m',[d.total,d.category,d.location, d.scanned ? 'scanned '+String(d.scanned).slice(0,10) : ''].filter(Boolean).join(' · ')));
     b.addEventListener('click',()=>selectDisk(i));
     box.appendChild(b);
   });

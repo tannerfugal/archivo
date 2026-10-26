@@ -8,7 +8,7 @@ const {validateRule,nextRun,advance}=require('./schedule');
 const {trashSelection}=require('./duplicates');
 class Service {
   constructor({directory,document,emit,trash,confirmTrash}) {
-    this.directory=directory;this.file=path.join(directory,'background.json');this.jobs=new Jobs();
+    this.directory=directory;this.file=path.join(directory,'background.json');this.jobs=new Jobs();this.revealJobs=new Jobs();this.searcher=new (require('./search-service').SearchService)();this.contextJSON='';this.revealTimings=[];
     this.document=document;this.emit=emit;this.trash=trash;this.confirmTrash=confirmTrash;
     this.busy=null;this.reports=new Map();this.tokens=new Map();this.live={disks:[]};
     try {this.settings=JSON.parse(fs.readFileSync(this.file,'utf8'));} catch {this.settings={};}
@@ -21,9 +21,9 @@ class Service {
   key(file,diskId) {return JSON.stringify([file?path.resolve(file):'@current',diskId]);}
   binding(file,diskId) {return this.settings.bindings[this.key(file,diskId)];}
   bindings(file,disks) {return Object.fromEntries(disks.map(d=>[d.id,this.binding(file,d.id)]));}
-  context(data) {this.live=sanitizeCatalog(data);return true;}
+  context(data) {const clean=sanitizeCatalog(data),json=JSON.stringify(clean);if(json!==this.contextJSON){this.live=clean;this.contextJSON=json;this.searcher.context(clean);}return true;}
   migrate(from,to,disks) {for(const d of disks){const b=this.binding(from,d.id);if(b)this.settings.bindings[this.key(to,d.id)]=b;}this.save();}
-  clearSession() {for(const key of Object.keys(this.settings.bindings))if(JSON.parse(key)[0]==='@current')delete this.settings.bindings[key];this.live={disks:[]};this.reports.clear();}
+  clearSession() {for(const key of Object.keys(this.settings.bindings))if(JSON.parse(key)[0]==='@current')delete this.settings.bindings[key];this.live={disks:[]};this.contextJSON='';this.searcher.context(this.live);this.reports.clear();}
   async exclusive(label,fn) {
     if(this.busy)throw Error(this.busy+' is already running. Wait for it to finish, or cancel it.');
     this.cancelRequested=false;this.busy=label;this.emit('status',this.status());
@@ -48,7 +48,13 @@ class Service {
     this.settings.bindings[this.key(this.document().path,diskId)]=b;this.reports.clear();this.save();return b;
   }
   async resolve(diskId) {return this.jobs.run('resolve',{binding:this.binding(this.document().path,diskId)});}
-  async reveal(diskId,segments) {return this.jobs.run('file',{binding:this.binding(this.document().path,diskId),segments});}
+  async reveal(diskId,segments) {
+    if(!this.live.disks.some(d=>d.id===diskId))throw Error('Unknown catalog source.');
+    const queued=performance.now(),binding=this.binding(this.document().path,diskId);
+    try{const result=await this.revealJobs.run('reveal',{binding,segments,queued});if(binding)binding.root=result.source.root;return result;}
+    catch(e){this.recordReveal({diskId,error:e.message,total:performance.now()-queued});throw e;}
+  }
+  recordReveal(entry){this.revealTimings.unshift({at:new Date().toISOString(),...entry});this.revealTimings=this.revealTimings.slice(0,50);try{atomic(path.join(this.directory,'reveal-timings.json'),JSON.stringify(this.revealTimings,null,2));}catch{}}
   sourceStatus() {const file=this.document().path;return this.live.disks.map(d=>({id:d.id,label:d.label,binding:this.binding(file,d.id)||null}));}
   addSchedule(input) {
     const file=this.document().path;if(!file)throw Error('Save this catalog before creating a schedule.');
@@ -90,7 +96,7 @@ class Service {
         if(updated) {
           const written=await this.jobs.run('write',{file:s.file,data:snapshot.data,expected:snapshot.fingerprint,backups:true});
           this.reports.clear();
-          if(current.path===s.file){this.live=snapshot.data;this.emit('catalog',{path:s.file,data:snapshot.data,fingerprint:written.fingerprint});}
+          if(current.path===s.file){this.context(snapshot.data);this.emit('catalog',{path:s.file,data:snapshot.data,fingerprint:written.fingerprint});}
         }
         s.lastResult=updated+' source(s) updated'+(notes.length?' · '+notes.join('; '):'');
         const needsAction=notes.some(n=>!/offline|not linked|Source is offline/.test(n));
@@ -153,7 +159,7 @@ class Service {
         for(const segment of item.segments.slice(0,-1)){const n=nodes.find(n=>n.name===segment && n.type==='dir');if(!n){nodes=null;break;}ancestors.push(n);nodes=n.children;}
         if(nodes){const i=nodes.findIndex(n=>n.name===item.segments.at(-1));if(i>=0){nodes.splice(i,1);disk.file_count=Math.max(0,disk.file_count-1);for(const a of ancestors)a.size=Math.max(0,(typeof a.size==='number'?a.size:0)-item.size);}}
       }
-      this.reports.clear();if(removed.length)this.emit('cleanup',{data:this.live});
+      this.reports.clear();if(removed.length){this.context(this.live);this.emit('cleanup',{data:this.live});}
       this.record('Duplicate cleanup',failures.length?'attention':'complete',removed.length+' copies moved to Trash'+(failures.length?' · '+failures.join('; '):''));
       return {removed:removed.length,failures};
     });

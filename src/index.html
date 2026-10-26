@@ -846,7 +846,7 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
     <div class="btn-ic" data-ico="plus" data-size="20"></div>
     <div class="btn-lb">Add disk</div>
   </button>
-  <button type="button" class="btn" id="btn-pick-source"><div class="btn-ic" data-ico="folder-open" data-size="20"></div><div class="btn-lb">Add folder / server</div></button>
+
   <div class="tsep"></div>
   <button type="button" class="btn" id="btn-import">
     <div class="btn-ic" data-ico="folder-open" data-size="20"></div>
@@ -890,6 +890,8 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
   <button type="button" id="fork-locate">Locate source…</button>
   <span id="fork-job-status" role="status">Ready</span><button type="button" id="fork-cancel" hidden>Cancel job</button>
 </nav>
+<div id="scope-chips" aria-label="Active organization scope"></div>
+<div id="workspace"><aside id="organization-sidebar" aria-label="Catalog organization" hidden></aside>
 <section id="fork-panel" hidden></section>
 <!-- MAIN -->
 <div id="main">
@@ -931,6 +933,7 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
   </div>
 </div>
 
+</div>
 <!-- STATUS BAR -->
 <div id="sb">
   <span class="sb-ver" id="sb-ver">v1.4.0</span>
@@ -986,6 +989,7 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
       <span class="add-vol-lbl">MOUNTED VOLUMES</span>
 <button class="add-ref" id="btn-hide-system" aria-pressed="false" style="margin-right:4px;">Hide system</button><button class="add-ref" id="btn-hide-network" aria-pressed="false" style="margin-right:4px;">Hide network</button><button class="add-ref" id="btn-refresh-vols">Refresh</button>
     </div>
+    <button type="button" id="btn-pick-source" class="ft-button">Choose folder or network path…</button><p id="scan-root" class="ft-path">Select a mounted disk, server share, or folder.</p>
     <div id="vol-list"><div style="padding:16px;text-align:center;font-family:var(--mono);font-size:10px;color:var(--dm);">Click Refresh to list volumes…</div></div>
     <div class="add-fl">
       <div class="add-lbl">DISK LABEL <span class="req">*</span></div>
@@ -1057,7 +1061,10 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
 <div id="toasts"></div>
 
 <script src="analysis.js"></script>
+<script src="organization.js"></script>
 <script src="app.js"></script>
 <script src="tools-ui.js"></script>
+<script src="organization-ui.js"></script>
+<script src="search-ui.js"></script>
 </body>
 </html>

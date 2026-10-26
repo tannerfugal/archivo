@@ -1,4 +1,4 @@
-# Archivo Fork 1.5.0 beta 1 — test guide
+# Archivo Fork 1.5.0 beta 2 — test guide
 
 This fork adds background rescans, an offline storage map, and content-verified duplicate finding to archivo v1.4.0. Original archivo is © 2026 just edit; fork additions are GPL-3.0-or-later.
 
@@ -26,10 +26,26 @@ This fork adds background rescans, an offline storage map, and content-verified 
 - Completed updates save automatically. The five previous catalog versions live in `your-catalog.archivo.backups` beside the catalog. **Show catalog backups** opens that folder; open a backup as a catalog and use Save As to restore a separate copy.
 - This version uses already connected OS shares. It does not store server passwords, mount disconnected shares, wake a sleeping computer, or run after quitting.
 
+## Organization and offline search
+
+- The shared sidebar has independent Category and Physical location trees. Categories start with Servers and Archive drives → Physically large / Physically small. Drives begin unassigned; the app does not infer physical size. Locations start empty.
+- Use Edit beside either tree to add, rename, reparent or delete empty groups. Use Organize drives for bulk assignments, or assign a selected drive from its inspector. These labels never move physical files.
+- Selecting a parent includes descendants. Category and location scopes intersect across Catalog, Storage Map and Duplicates. Active chips and Reset scope show how to clear them. Schedule targets remain independent and always show the complete catalog.
+- Search filters combine with AND: filename, Exact filename (case-insensitive whole name including extension), modified or created date range, file type, drive, path contains, minimum/maximum bytes. One-character queries and filter-only searches work. Dates include the selected local calendar days. Byte limits apply to files with exact indexed sizes.
+- Results are sortable and paginated (100 per page), with complete counts. Search uses offline catalog data in a worker. Changes invalidate results. Clearing a search or organization scope never removes catalog entries.
+- Future scans record creation dates when supplied by the filesystem. Legacy missing creation dates show Unknown and do not match creation-date filters. Filesystem creation dates can change when copying between drives.
+- Category/location paths appear in CSV and standalone HTML exports. Catalog validation, Save As, backups and scheduled saves preserve stable group IDs and assignments. Old upstream Archivo versions may discard these optional fields when saving: use a copy when testing upstream.
+
+## Reveal diagnostics
+
+Reveal has its own worker queue and validates the requested source and path freshly. Ordinary clicks avoid whole-system rediscovery; moved sources trigger discovery. Cleanup retains its separate full identity and content verification.
+
+Buttons show Locating immediately, then Sent to Finder/Explorer or a readable error. Timings record queue wait (including worker startup), source resolution, path validation and shell dispatch in `reveal-timings.json` under the fork's local application data (`~/Library/Application Support/Archivo Fork` on Mac; `%APPDATA%/Archivo Fork` on Windows). Shell dispatch measures handing the request to the OS; it cannot measure when Explorer finishes drawing its window. Include timings when reporting a slow local disk or server Reveal.
+
 ## Storage Map
 
 - Open **Storage Map**, select tiles to inspect them, and double-click folders to drill down. Use breadcrumbs to go back.
-- The companion list sorts by size or name and shows the first 100 items at the current level. A map level with over 300 entries groups smaller entries into an explorable Other tile.
+- Nested rectangles show folder and file contents immediately, with four levels by default. Change the detail depth, double-click to zoom, and use breadcrumbs to return. Single-child wrapper folders are passed through automatically. At most 4,000 blocks are drawn; smaller regions keep their full byte weight inside openable aggregates. Largest files and Largest folders cover every descendant in the current scope, with 50 rows per page.
 - Reveal works when the disk is connected and locally linked. Show in catalog returns to its tree location.
 - Map totals are the catalog’s indexed **logical bytes**, not allocated filesystem space. Scan date, drive capacity, and free space are shown separately. Approximate or missing imported sizes are labeled; rescan to obtain exact file sizes.
 - The scanner retains upstream exclusions for dot-prefixed items, known OS/cache folders, and symbolic links. Nested mounted volumes should be cataloged as separate sources. A scheduled catalog excludes itself, its backups, and the application’s settings folder from its own scan.
@@ -38,7 +54,7 @@ This fork adds background rescans, an offline storage map, and content-verified 
 
 1. Choose disks and **Find possible copies** for an offline comparison. Exact matching sizes are candidates even when filenames differ; approximate imported sizes and empty files are excluded.
 2. Connect and link the sources, then **Verify contents**. Sampled reads narrow candidates; full SHA-256 reads establish matching content. Large media files can take time. Cancel is available in the job bar.
-3. Results identify content groups and distinguish Possible, Verified, Offline, Changed, Unreadable, Different, and Same file (hard links). The result list is paginated. Export CSV records all results.
+3. Results identify content groups and distinguish Possible, Verified, Offline, Changed, Unreadable, Different, and Same file (hard links). Verified content groups are separate expandable cards, even when multiple content groups have the same byte size. Possible matches are labeled separately. Confirmed nonmatches and hard links appear under Show other results. Pages contain whole groups (20 per page); cleanup selections survive collapse and pagination. Export CSV records all results.
 4. Nothing is selected automatically. To test cleanup, use disposable copies first. Select verified copies, leave at least one copy per content group, and choose **Move selected copies to Trash**. A confirmation is required; contents and source identities are checked again before moving anything.
 5. Network files are inspection-only in this beta. If the OS cannot recycle a local file, it stays in place. There is no permanent-delete fallback. The surviving copy must still be connected and verified. File changes or disconnections stop cleanup.
 6. Successful cleanup updates the open catalog and marks it edited; save to retain the updated file list. Restore recycled files through Finder’s Trash or Windows Recycle Bin, then rescan.

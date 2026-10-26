@@ -25,6 +25,10 @@ const progress=p=>parentPort.postMessage({progress:p});
       if (!sources.same(source,sources.identify(source.root))) throw Error('Source changed during verification.');
       result.source=source;break;
     }
+    case 'reveal': {
+      const started=performance.now(),source=sources.resolveTarget(args.binding),resolved=performance.now();
+      result={file:sources.realFile(source.root,args.segments),source,timings:{queue:started-args.queued,resolution:resolved-started,pathValidation:performance.now()-resolved}};break;
+    }
     case 'file': {
       const source=sources.resolve(args.binding);
       result={file:sources.realFile(source.root,args.segments),source};break;

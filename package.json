@@ -1,6 +1,6 @@
 {
   "name": "archivo-fork",
-  "version": "1.5.0-beta.1",
+  "version": "1.5.0-beta.2",
   "description": "Offline catalogs, scheduled rescans, storage maps and verified duplicates",
   "main": "src/main.js",
   "scripts": {
@@ -63,7 +63,7 @@
       }
     },
     "dmg": {
-      "title": "Archivo Fork 1.5.0 beta 1",
+      "title": "Archivo Fork 1.5.0 beta 2",
       "icon": null,
       "internetEnabled": false,
       "writeUpdateInfo": false,

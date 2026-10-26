@@ -131,10 +131,10 @@ async function scanVolume(mountPoint, opts = {}) {
       if (e.isDirectory()) {
         const children = await walk(full, depth + 1);
         const dirSize  = children.reduce((sum, c) => sum + (c.size || 0), 0);
-        nodes.push({ type:'dir', name:e.name, size:dirSize, modified:stat.mtime.toISOString().slice(0,10), mtime_ms:stat.mtimeMs, children });
+        nodes.push({ type:'dir', name:e.name, size:dirSize, modified:stat.mtime.toISOString().slice(0,10), mtime_ms:stat.mtimeMs, ...(stat.birthtimeMs > 0 ? {created_ms:stat.birthtimeMs} : {}), children });
       } else {
         done++;
-        nodes.push({ type:'file', name:e.name, size:stat.size, modified:stat.mtime.toISOString().slice(0,10), mtime_ms:stat.mtimeMs });
+        nodes.push({ type:'file', name:e.name, size:stat.size, modified:stat.mtime.toISOString().slice(0,10), mtime_ms:stat.mtimeMs, ...(stat.birthtimeMs > 0 ? {created_ms:stat.birthtimeMs} : {}) });
         const now = Date.now();
         if (now - lastEmit > 60) {
           lastEmit = now;

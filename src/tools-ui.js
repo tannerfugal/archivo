@@ -11,9 +11,10 @@ function fbadge(text){return fe('span','ft-badge '+text.toLowerCase(),text);}
 function fcheck(text,value,checked=true){const label=fe('label','ft-check'),input=fe('input');input.type='checkbox';input.value=value;input.checked=checked;label.append(input,document.createTextNode(text));return label;}
 function fhead(title,description,actions=[]){const head=fe('div','ft-head'),left=fe('div');left.append(fe('h1','',title),fe('p','',description));head.append(left);const right=fe('div','ft-actions');right.append(...actions);head.append(right);g('fork-panel').append(head);}
 async function forkSync(){await fa.context(DB);forkState=await fa.toolsStatus();return forkState;}
-function forkRefresh(){if(fa?.context)fa.context(DB).catch(forkError);if(forkView==='map'){forkMapStack=[];renderStorageMap();}forkDuplicateReport=null;}
+function forkRefresh(){if(fa?.context)fa.context(DB).catch(forkError);if(forkView==='map'){forkMapStack=[];renderStorageMap();}forkDuplicateReport=null;if(typeof forkDuplicateSelections!=='undefined')forkDuplicateSelections.clear();}
 function forkShow(view){
   forkView=view;
+  if(typeof renderOrganization==='function')renderOrganization();
   document.querySelectorAll('#fork-nav [data-view]').forEach(b=>{if(b.dataset.view===view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   g('fork-panel').hidden=view==='catalog';g('main').style.display=view==='catalog'?'flex':'none';
   if(view==='catalog'){if(!docOpen)showWelcome();return;}
@@ -35,45 +36,42 @@ function frow(table,values){const tr=fe('tr');for(const v of values){const td=fe
 function ftable(headers){const table=fe('table','ft-table'),head=fe('tr');for(const h of headers)head.append(fe('th','',h));table.append(head);return table;}
 function fpath(item){return (item.diskLabel || DB.disks.find(d=>d.id===item.diskId)?.label || '')+' / '+item.segments.join('/');}
 function color(item){if(item.children)return '#755147';const ext=item.name.split('.').pop().toLowerCase();if(V.has(ext))return '#556a8d';if(I.has(ext))return '#667b59';if(A.has(ext))return '#8a657e';if(AR.has(ext))return '#9b7e4d';return '#626875';}
+let forkMapDepth=4,forkLargestKind='files',forkLargestPage=0;
+function revealButton(item,label='Reveal'){
+ const button=fb(label,async()=>{button.disabled=true;button.textContent='Locating…';try{const result=await fa.revealSource(item.diskId,item.segments);button.textContent='Sent to '+fileManager();button.title=result?.timings?JSON.stringify(result.timings):'';setTimeout(()=>{button.textContent=label;button.disabled=false;},1200);}catch(e){button.textContent='Try Reveal again';button.disabled=false;button.title=String(e.message);throw e;}});button.dataset.reveal='1';return button;
+}
 function renderStorageMap(){
-  const panel=g('fork-panel');panel.replaceChildren();
-  fhead('Storage Map','Find the files and folders taking up space. This view works with offline catalogs.',[fb('Refresh view',()=>{forkMapStack=[];renderStorageMap();})]);
-  if(!docOpen || !DB.disks.length){fempty('Add a disk to explore its storage','Open a catalog or scan a drive, server share, or folder.');return;}
-  if(!forkMapStack.length)forkMapStack=[ArchivoAnalysis.tree(DB.disks)];
-  const current=forkMapStack.at(-1),crumb=fe('div','ft-crumb');
-  forkMapStack.forEach((n,i)=>{if(i)crumb.append(document.createTextNode('/'));crumb.append(fb(n.name,()=>{forkMapStack=forkMapStack.slice(0,i+1);forkMapSelected=null;renderStorageMap();}));});panel.append(crumb);
-  const sum=fe('div','ft-stat',fmt(current.size)+(current.approximate?' ≈':''));sum.append(fe('small','', '  indexed file sizes'+(current.approximate?' · includes approximate or unknown imported sizes':'')));panel.append(sum);
-  if(current.diskId){const d=DB.disks.find(d=>d.id===current.diskId);panel.append(fe('p','ft-muted','Last scan: '+(d.scanned?new Date(d.scanned).toLocaleString():'Unknown')+' · Capacity: '+(d.total || 'Unknown')+' · Free: '+(d.free || 'Unknown')));}
-  else panel.append(fe('p','ft-muted','Indexed sizes are logical file sizes, not filesystem allocation or total used space. Each disk retains its last scan date.'));
-  const grid=fe('div','ft-grid'),left=fe('div'),map=fe('div');map.id='storage-map';map.setAttribute('aria-label','Storage map. Select a tile to inspect it; double-click a folder to open it.');
-  let items=(current.children || []).slice().sort((a,b)=>b.size-a.size);
-  if(items.length>300){const rest=items.slice(299);items=items.slice(0,299).concat({name:'Other '+rest.length.toLocaleString()+' items',size:rest.reduce((s,n)=>s+n.size,0),children:rest,segments:[],aggregate:true});}
-  const zoom=item=>{if(item.children){forkMapStack.push(item);forkMapSelected=null;renderStorageMap();}};
-  for(const r of ArchivoAnalysis.layout(items,0,0,100,100)){
-    const tile=fb('',()=>{forkMapSelected=r.item;renderMapDetail();},'map-tile');tile.style.cssText='left:'+r.x+'%;top:'+r.y+'%;width:'+r.w+'%;height:'+r.h+'%;background:'+color(r.item);
-    tile.title=r.item.name+' · '+fmt(r.item.size)+(r.item.children?' · Double-click to open':'');tile.setAttribute('aria-label',tile.title);tile.setAttribute('aria-pressed',String(forkMapSelected===r.item));
-    if(r.w>6&&r.h>9)tile.append(document.createTextNode(r.item.name),fe('span','',fmt(r.item.size)));
-    tile.addEventListener('dblclick',()=>zoom(r.item));map.append(tile);
-  }
-  if(!current.size)map.append(fe('div','ft-empty','No indexed bytes in this folder.'));
-  left.append(map);
-  const legend=fe('div','ft-tabs-help');for(const [name,hex] of [['Folders','#755147'],['Video','#556a8d'],['Images','#667b59'],['Audio','#8a657e'],['Archives','#9b7e4d']]){const label=fe('span'),dot=fe('span','ft-dot');dot.style.background=hex;label.append(dot,document.createTextNode(name));legend.append(label);}left.append(legend);
-  left.append(fe('p','ft-muted','Select to inspect · Double-click a folder or use Open folder to zoom in'));
-  const detail=fe('aside','ft-detail');detail.id='map-detail';grid.append(left,detail);panel.append(grid);renderMapDetail();
-  const row=fe('div','ft-row');row.append(fe('h2','ft-section-title','Largest items'));
-  const sort=fe('select','ft-select');sort.setAttribute('aria-label','Largest items sort');for(const [value,text]of[['size','Size, largest first'],['name','Name, A–Z']]){const o=fe('option','',text);o.value=value;sort.append(o);}row.append(sort);panel.append(row);
-  const table=ftable(['Name','Indexed size','Kind','Action']);panel.append(table);
-  const fill=()=>{while(table.children.length>1)table.lastChild.remove();const nodes=(current.children||[]).slice().sort(sort.value==='name'?(a,b)=>a.name.localeCompare(b.name):(a,b)=>b.size-a.size);for(const item of nodes.slice(0,100)){const action=fe('div','ft-actions');action.append(fb('Inspect',()=>{forkMapSelected=item;renderMapDetail();}));if(item.children)action.append(fb('Open folder',()=>zoom(item)));frow(table,[item.name,fmt(item.size)+(item.approximate?' ≈':''),item.children?'Folder':'File',action]);}if(nodes.length>100)left.append(fe('p','ft-muted','The list shows the first 100 items. Use the catalog to inspect all items.'));};sort.onchange=fill;fill();
+ const panel=g('fork-panel');panel.replaceChildren();if(typeof renderOrganization==='function')renderOrganization();
+ fhead('Storage Map','Folder and file sizes from your offline catalog. Select a block to inspect it; double-click a folder to zoom.');
+ const disks=scopedDisks();if(!docOpen||!disks.length){fempty('No drives in this scope','Open a catalog or reset the category and location filters.');return;}
+ if(!forkMapStack.length){const root=ArchivoAnalysis.tree(disks);forkMapStack=[root];const chosen=root.children.find(n=>n.diskId===selected?.disk?.id)||(disks.length===1?root.children[0]:null);if(chosen)forkMapStack.push(chosen);}
+ const current=forkMapStack.at(-1),crumb=fe('div','ft-crumb');forkMapStack.forEach((n,i)=>{if(i)crumb.append(document.createTextNode('/'));crumb.append(fb(n.name,()=>{forkMapStack=forkMapStack.slice(0,i+1);forkLargestPage=0;forkMapSelected=null;renderStorageMap();}));});panel.append(crumb);
+ const controls=fe('div','ft-row'),depth=fe('select','ft-select');for(let i=1;i<=8;i++){const o=fe('option','',i+' detail levels');o.value=i;depth.append(o);}depth.value=forkMapDepth;depth.setAttribute('aria-label','Map detail depth');depth.onchange=()=>{forkMapDepth=Number(depth.value);renderStorageMap();};controls.append(fe('div','ft-stat',fmt(current.size)+(current.approximate?' ≈':'')+' indexed bytes'),depth);panel.append(controls);
+ panel.append(fe('p','ft-muted',current.diskId?'Last scan: '+(DB.disks.find(d=>d.id===current.diskId)?.scanned||'Unknown')+' · '+organizationPaths(DB.disks.find(d=>d.id===current.diskId)).join(' · '):'Each labeled drive contains its folders and files.'));panel.append(fe('p','ft-muted','Logical indexed sizes; capacity and free space are separate. '+disks.map(d=>d.label+': '+(d.total||'unknown capacity')+' / '+(d.free||'unknown free')).join(' · ')));
+ const grid=fe('div','ft-grid'),map=fe('div');map.id='storage-map';map.setAttribute('aria-label','Nested storage map');
+ const zoom=item=>{if(item.children){forkMapStack.push(item);forkMapSelected=null;forkLargestPage=0;renderStorageMap();}};
+ for(const r of ArchivoAnalysis.nested(current,1000,600,forkMapDepth,4000)){
+  const tile=fb('',()=>{forkMapSelected=r.item;renderMapDetail();},'map-tile');tile.dataset.level=r.level;tile.dataset.bytes=r.item.size;
+  tile.style.cssText=`left:${r.x/10}%;top:${r.y/6}%;width:${r.w/10}%;height:${r.h/6}%;background:hsl(${(r.tone*67+12)%360} 28% ${27+r.level*7}%);z-index:${r.level+1};padding:3px 6px`;
+  tile.title=r.item.name+' · '+fmt(r.item.size)+(r.item.approximate?' · Approximate imported sizes':'');tile.setAttribute('aria-label',tile.title);if(r.w>75&&r.h>20)tile.append(fe('span','map-label',r.item.name));tile.addEventListener('dblclick',()=>zoom(r.item));map.append(tile);
+ }
+ if(!current.size)map.append(fe('div','ft-empty','No indexed bytes in this folder. Unknown imported sizes cannot be drawn.'));
+ const detail=fe('aside','ft-detail');detail.id='map-detail';grid.append(map,detail);panel.append(grid);renderMapDetail();
+ panel.append(fe('p','ft-muted','Up to 4,000 blocks. Smaller regions are combined without dropping their bytes; open a smaller-items region to explore it. Folder colors share related shades.'));
+ const tabs=fe('div','ft-actions');for(const kind of ['files','folders'])tabs.append(fb('Largest '+kind,()=>{forkLargestKind=kind;forkLargestPage=0;renderStorageMap();},forkLargestKind===kind?'ft-primary':''));panel.append(tabs);
+ const nodes=ArchivoAnalysis.descendants(current,forkLargestKind==='folders').sort((a,b)=>b.size-a.size||a.name.localeCompare(b.name)),table=ftable(['Name / path','Indexed size','Action']),start=forkLargestPage*50;
+ for(const item of nodes.slice(start,start+50)){const info=fe('div');info.append(fe('div','',item.name),fe('small','ft-path',fpath(item)));const action=fe('div','ft-actions');action.append(fb('Inspect',()=>{forkMapSelected=item;renderMapDetail();}));if(item.children)action.append(fb('Open folder',()=>zoom(item)));frow(table,[info,fmt(item.size)+(item.approximate?' ≈':''),action]);}panel.append(table);
+ const pager=fe('div','ft-page'),prev=fb('Previous',()=>{forkLargestPage--;renderStorageMap();}),next=fb('Next',()=>{forkLargestPage++;renderStorageMap();});prev.disabled=!forkLargestPage;next.disabled=start+50>=nodes.length;pager.append(prev,fe('span','',nodes.length?`${start+1}–${Math.min(start+50,nodes.length)} of ${nodes.length} ${forkLargestKind}`:'No '+forkLargestKind),next);panel.append(pager);
 }
 function renderMapDetail(){
   const el=g('map-detail');if(!el)return;el.replaceChildren();const item=forkMapSelected;
   if(!item){el.append(fe('h2','','Select a file or folder'),fe('p','ft-muted','Its size and location will appear here.'));return;}
   el.append(fe('h2','',item.name),fe('div','ft-stat',fmt(item.size)),fe('p','ft-path',item.diskId?fpath(item):item.name));
   if(item.children)el.append(fb('Open folder',()=>{forkMapStack.push(item);forkMapSelected=null;renderStorageMap();},'ft-primary'));
-  if(item.diskId)el.append(fb('Reveal in '+fileManager(),()=>fa.revealSource(item.diskId,item.segments)),fb('Show in catalog',()=>{forkShow('catalog');selDisk(item.diskId);const key=item.diskId+'/'+item.segments.join('/');const parts=key.split('/');for(let i=1;i<parts.length;i++)expanded.add(parts.slice(0,i).join('/'));renderTree();const row=ROWS.find(r=>r.key===key);if(row)selectRow(row,true);}));
+  if(item.diskId)el.append(revealButton(item,'Reveal in '+fileManager()),fb('Show in catalog',()=>{forkShow('catalog');selDisk(item.diskId);const key=item.diskId+'/'+item.segments.join('/');const parts=key.split('/');for(let i=1;i<parts.length;i++)expanded.add(parts.slice(0,i).join('/'));renderTree();const row=ROWS.find(r=>r.key===key);if(row)selectRow(row,true);}));
   if(item.approximate)el.append(fe('p','ft-note','Some imported sizes are approximate or unknown. Rescan the source for exact bytes.'));
 }
-function duplicateDiskChoices(container){for(const d of DB.disks)container.append(fcheck(d.label,d.id,true));}
+function duplicateDiskChoices(container){for(const d of scopedDisks())container.append(fcheck(d.label,d.id,true));}
 function renderDuplicates(){
   const panel=g('fork-panel');panel.replaceChildren();fhead('Duplicates','Find possible copies offline, then verify their full contents when the drives are connected.');
   if(!docOpen||!DB.disks.length){fempty('Open a catalog to find duplicates','Scan your drives or server folders first.');return;}
@@ -85,31 +83,33 @@ function renderDuplicates(){
 async function runDuplicates(verify){
   const ids=[...g('duplicate-disks').querySelectorAll('input:checked')].map(i=>i.value);await forkSync();
   g('duplicate-results').replaceChildren(fe('div','ft-empty',verify?'Reading file contents… You can cancel from the job bar.':'Finding candidate files…'));
-  try{forkDuplicateReport=await fa.findDuplicates(ids,verify);forkDuplicatePage=0;renderDuplicateResults();}catch(e){g('duplicate-results').replaceChildren(fe('div','ft-empty','Search did not finish.'));throw e;}
+  try{forkDuplicateSelections.clear();forkDuplicateCollapsed.clear();forkDuplicateReport=await fa.findDuplicates(ids,verify);forkDuplicatePage=0;renderDuplicateResults();}catch(e){g('duplicate-results').replaceChildren(fe('div','ft-empty','Search did not finish.'));throw e;}
 }
+const forkDuplicateSelections=new Set(),forkDuplicateCollapsed=new Set();let forkDuplicateOthers=false;
 function renderDuplicateResults(){
-  const el=g('duplicate-results');if(!el)return;el.replaceChildren();const report=forkDuplicateReport;
-  if(!report){el.append(fe('div','ft-empty','Choose disks, then find possible copies or verify their contents. Zero-byte files are excluded.'));return;}
-  const all=report.groups.flatMap(g=>g.items),verified=all.filter(i=>i.status==='Verified'),hashes=new Set(verified.map(i=>i.hash));let savings=0;
-  for(const hash of hashes){const items=verified.filter(i=>i.hash===hash);savings+=(items.length-1)*items[0].size;}
-  el.append(fe('div','ft-stat',fmt(savings)+' verified duplicate bytes'),fe('p','ft-muted',report.groups.length+' size group(s) · '+verified.length+' verified copies · logical sizes; filesystem space recovered may differ'+(report.cancelled?' · Verification cancelled; showing completed groups.':'')));
-  if(!all.length){el.append(fe('div','ft-empty','No matching-size candidates found.'));return;}
-  const pageSize=150,start=forkDuplicatePage*pageSize,table=ftable(['Select','File and location','Size','Status','Action']);
-  for(const item of all.slice(start,start+pageSize)){
-    const check=fe('input');check.type='checkbox';check.dataset.copyId=item.id;check.disabled=item.status!=='Verified';check.setAttribute('aria-label','Select '+fpath(item)+' for Trash');
-    const name=fe('div');name.append(fe('div','',item.name),fe('div','ft-path',fpath(item)));if(item.hash)name.append(fe('small','ft-muted','Content group '+item.hash.slice(0,10)));if(item.reason)name.append(fe('p','ft-muted',item.reason));
-    const badge=fbadge(item.status),action=fb('Reveal',()=>fa.revealSource(item.diskId,item.segments));
-    frow(table,[check,name,fmt(item.size),badge,action]);
-  }el.append(table);
-  const pager=fe('div','ft-page');pager.append(fe('span','',(start+1)+'–'+Math.min(start+pageSize,all.length)+' of '+all.length+' files'));
-  const buttons=fe('div','ft-actions');const prev=fb('Previous',()=>{forkDuplicatePage--;renderDuplicateResults();}),next=fb('Next',()=>{forkDuplicatePage++;renderDuplicateResults();});prev.disabled=!forkDuplicatePage;next.disabled=start+pageSize>=all.length;buttons.append(prev,next);pager.append(buttons);el.append(pager);
+ const el=g('duplicate-results');if(!el)return;el.replaceChildren();const report=forkDuplicateReport;
+ if(!report){el.append(fe('div','ft-empty','Choose disks, then find possible copies or verify their contents. Zero-byte files are excluded.'));return;}
+ const derived=ArchivoAnalysis.duplicateGroups(report,forkDuplicateOthers),groups=derived.groups,verified=ArchivoAnalysis.duplicateGroups(report).groups.filter(g=>g.state==='Verified');
+ el.append(fe('div','ft-stat',fmt(verified.reduce((s,g)=>s+g.duplicateBytes,0))+' verified duplicate bytes'));
+ const other=fcheck('Show other results ('+derived.otherCount+' nonmatches / hard links)','other',forkDuplicateOthers);other.querySelector('input').onchange=e=>{forkDuplicateOthers=e.target.checked;forkDuplicatePage=0;renderDuplicateResults();};el.append(other,fe('p','ft-muted',groups.length+' match group(s) · '+forkDuplicateSelections.size+' copies selected'+(report.cancelled?' · Verification cancelled; completed results only.':'')));
+ if(!groups.length){el.append(fe('div','ft-empty','No matching copies in this view. Other results can be inspected above.'));return;}
+ const size=20;forkDuplicatePage=Math.min(forkDuplicatePage,Math.ceil(groups.length/size)-1);const start=forkDuplicatePage*size;
+ for(const group of groups.slice(start,start+size)){
+  const box=fe('details','duplicate-group');box.open=!forkDuplicateCollapsed.has(group.id);box.dataset.groupId=group.id;box.ontoggle=()=>{if(box.open)forkDuplicateCollapsed.delete(group.id);else forkDuplicateCollapsed.add(group.id);};
+  const header=fe('summary'),title=fe('strong','',group.items[0].name),state=fe('span','ft-badge',group.state);header.append(title,state,fe('span','',group.items.length+' copies · '+fmt(group.size)+' each · '+fmt(group.duplicateBytes)+(group.state==='Verified'?' duplicate bytes':' potential duplicate bytes')));box.append(header);
+  const table=ftable(['Select','Copy and location','Status','Action']);
+  for(const item of group.items){const check=fe('input');check.type='checkbox';check.dataset.copyId=item.id;check.disabled=item.status!=='Verified';check.checked=forkDuplicateSelections.has(item.id);check.setAttribute('aria-label','Select '+fpath(item)+' for Trash');check.onchange=()=>{if(check.checked)forkDuplicateSelections.add(item.id);else forkDuplicateSelections.delete(item.id);};
+   const info=fe('div');info.append(fe('strong','',item.name),fe('div','ft-path',fpath(item)),fe('div','ft-muted',organizationPaths(DB.disks.find(d=>d.id===item.diskId)).join(' · ')));if(item.reason)info.append(fe('p','ft-muted',item.reason));frow(table,[check,info,fbadge(item.status),revealButton(item)]);
+  }box.append(table);el.append(box);
+ }
+ const pager=fe('div','ft-page'),prev=fb('Previous',()=>{forkDuplicatePage--;renderDuplicateResults();}),next=fb('Next',()=>{forkDuplicatePage++;renderDuplicateResults();});prev.disabled=!forkDuplicatePage;next.disabled=start+size>=groups.length;pager.append(prev,fe('span','',`${start+1}–${Math.min(start+size,groups.length)} of ${groups.length} groups`),next);el.append(pager);
 }
 async function trashDuplicates(){
-  if(!forkDuplicateReport)throw Error('Verify file contents first.');const ids=[...g('duplicate-results').querySelectorAll('input:checked')].map(i=>i.dataset.copyId);
+  if(!forkDuplicateReport)throw Error('Verify file contents first.');const ids=[...forkDuplicateSelections];
   await fa.context(DB);const result=await fa.trashCopies(forkDuplicateReport.id,ids);if(!result.cancelled){forkDuplicateReport=null;renderDuplicateResults();toast(result.removed+' copies moved to Trash.'+(result.failures.length?' '+result.failures.join('; '):''),result.failures.length?'warn':'ok',8000);}
 }
 async function exportDuplicates(){
-  if(!forkDuplicateReport)throw Error('Find duplicates first.');const rows=[['Disk','Path','Bytes','Status','SHA-256']];for(const item of forkDuplicateReport.groups.flatMap(g=>g.items))rows.push([item.diskLabel,item.segments.join('/'),item.size,item.status,item.hash || '']);
+  if(!forkDuplicateReport)throw Error('Find duplicates first.');const rows=[['Disk','Path','Bytes','Status','SHA-256','Category','Physical location']];for(const item of forkDuplicateReport.groups.flatMap(g=>g.items))rows.push([item.diskLabel,item.segments.join('/'),item.size,item.status,item.hash || '',...organizationPaths(DB.disks.find(d=>d.id===item.diskId))]);
   await fa.exportText({content:rows.map(r=>r.map(csvField).join(',')).join('\n'),defaultName:'archivo-duplicates.csv',filterName:'Duplicate report',extensions:['csv']});
 }
 async function renderSchedules(){
@@ -156,8 +156,8 @@ g('fork-cancel').onclick=()=>fa.cancelJob().catch(forkError);
 fa.onFork('view',forkShow);
 fa.onFork('status',status=>{
   forkBusy=status.busy;g('fork-job-status').textContent=status.busy?'Working: '+status.busy:status.paused?'Schedules paused':'Ready';g('fork-cancel').hidden=!status.busy;
-  g('main').inert=!!status.busy;
-  document.querySelectorAll('#fork-panel button, #fork-panel input, #fork-panel select').forEach(el=>{ if(status.busy && !el.disabled){el.dataset.jobDisabled='1';el.disabled=true;}else if(!status.busy && el.dataset.jobDisabled){delete el.dataset.jobDisabled;el.disabled=false;} });
+  g('main').inert=false;
+  document.querySelectorAll('#fork-panel button, #fork-panel input, #fork-panel select').forEach(el=>{ if(status.busy && !el.disabled && !el.dataset.reveal){el.dataset.jobDisabled='1';el.disabled=true;}else if(!status.busy && el.dataset.jobDisabled){delete el.dataset.jobDisabled;el.disabled=false;} });
   updateUiState();
 });
 fa.onFork('progress',p=>{if(p.path)g('fork-job-status').textContent=(p.label?p.label+': ':'')+p.path;else if(p.groups)g('fork-job-status').textContent='Verified '+p.groups+' / '+p.total+' groups';});

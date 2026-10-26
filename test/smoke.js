@@ -193,7 +193,7 @@ app.whenReady().then(async () => {
     await js(`expanded.add(DB.disks[0].id); expanded.add(DB.disks[0].id + '/' + DB.disks[0].tree[0].name); renderTree();
       selectRow(ROWS[1]); updateInsp(); true`);
     await js(`selectRow(ROWS[0]); deleteSelected(); true`); await wait(100);
-    await js(`g('search-inp').value = 'img'; execSearch('img'); true`);
+    await js(`(async()=>{g('search-inp').value = 'img'; await execSearch('img'); return true})()`);
     const inj = await js(`['tree-body','ib','mb','srch-list','pathbar'].map(id => g(id).querySelectorAll('img').length).reduce((a,b)=>a+b,0)`);
     check('sécu: trapped catalog renders as text (tree, inspector, dialog, search)', inj === 0, inj + ' <img> injected');
     check('sécu: no code ran from the catalog', !(await js('window.__p')));
@@ -286,16 +286,16 @@ app.whenReady().then(async () => {
 
     // — Search: no index, empty state, filters, highlight escaped —
     check('search: no more index in memory', await js(`typeof srchIndex === 'undefined' && typeof buildIndex === 'undefined'`));
-    const ts = await js(`(() => { g('search-inp').value = 'C4999'; const t0 = performance.now(); execSearch('C4999'); return [performance.now() - t0, srchResults.length]; })()`);
+    const ts = await js(`(async() => { g('search-inp').value = 'C4999'; const t0 = performance.now(); await execSearch('C4999'); return [performance.now() - t0, srchResults.length]; })()`);
     check('search: finds without an index', ts[1] === 10, ts[1] + ' results in ' + Math.round(ts[0]) + ' ms');
     await js(`openResult(0); true`); await wait(100);
     check('search: a result opens, selects and shows its row', await js(`selected && selected.node && selected.node.name === 'C49990.mov' && !!document.querySelector('#tree-body .tr.sel')`));
-    await js(`execSearch('zzzz-nothing'); true`);
+    await js(`(async()=>{await execSearch('zzzz-nothing'); return true})()`);
     check('search: "no result" says so', await js(`!!g('srch-list').querySelector('.srch-empty')`));
     await js(`DB.disks[0].tree.push({ type:'dir', name:'clip.mov', children:[] }, { type:'file', name:'a<b>clip</b>.mov', size:1 }); true`);
-    await js(`srchFilter = 'video'; execSearch('clip'); true`);
+    await js(`(async()=>{srchFilter = 'video'; await execSearch('clip'); return true})()`);
     check('search: Video filter skips folders', await js(`srchResults.every(r => r.node.type === 'file') && srchResults.length === 1`));
-    await js(`execSearch('<b>clip'); true`);
+    await js(`(async()=>{await execSearch('<b>clip'); return true})()`);
     check('search: highlight cannot inject markup', await js(`srchResults.length === 1 && !g('srch-list').querySelector('.sr-nm b') && g('srch-list').querySelector('.sr-nm em') !== null`));
     await js(`srchFilter = 'all'; clearSearch(); true`);
     check('search: clear button is a real button', await js(`g('search-clear').tagName === 'BUTTON'`));
@@ -306,7 +306,7 @@ app.whenReady().then(async () => {
       { id:'k2', label:'TWO', total:'1 TB', free:'0,5 TB', tree:[] } ] };
       expanded.clear(); selected = null; refreshAll(); g('tree-scroll').scrollTop = 0; true`);
     const key = (k, extra) => js(`g('tree-scroll').dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: ${JSON.stringify(k)}, bubbles: true }, ${JSON.stringify(extra || {})}))); true`);
-    await js(`g('tree-scroll').focus(); true`);
+    await js(`g('search-inp').focus(); g('tree-scroll').focus(); true`);
     check('clavier: the tree takes the focus and selects the first row', await js(`document.activeElement === g('tree-scroll') && selected && selected.disk.id === 'k1'`));
     await key('ArrowRight'); await key('ArrowDown');
     check('clavier: arrows open and move', await js(`selected.type === 'node' && selected.node.name === 'D'`));
