@@ -116,7 +116,7 @@ async function renderSchedules(){
   const request=++forkScheduleRenderId;const state=await forkSync();if(forkView!=='schedules' || request!==forkScheduleRenderId)return;
   const panel=g('fork-panel');panel.replaceChildren();
   fhead('Schedules','Keep saved catalogs up to date while Archivo Fork runs in the menu bar or system tray.',[fb(state.paused?'Resume schedules':'Pause all',async()=>{await fa.pauseSchedules(!state.paused);await renderSchedules();}),fb('Show catalog backups',()=>fa.showBackups())]);
-  const login=fcheck('Launch Archivo Fork at login','login',state.login);login.querySelector('input').onchange=async e=>{try{await fa.launchAtLogin(e.target.checked);}catch(err){e.target.checked=!e.target.checked;forkError(err);}};panel.append(login);
+  const login=fcheck('Launch Archivo Fork at login','login',state.login);login.querySelector('input').onchange=async e=>{try{e.target.checked=await fa.launchAtLogin(e.target.checked);}catch(err){e.target.checked=!e.target.checked;forkError(err);}};panel.append(login);
   panel.append(fe('p','ft-muted','Closing the window keeps schedules running. Quit stops them. After sleep or relaunch, one catch-up run is made for each overdue schedule. Times use this computer’s local time zone.'));
   panel.append(fe('h2','ft-section-title','Saved schedules'));
   if(!state.schedules.length)panel.append(fe('p','ft-muted','No schedules yet. Save a catalog and link its sources below.'));

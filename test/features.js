@@ -49,5 +49,5 @@ const {scanVolume}=require('../src/scanner'),io=require('../src/catalog-io');
     const bounds=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,panel:document.getElementById('fork-panel').getBoundingClientRect().right}));assert.ok(bounds.scroll<=bounds.width);assert.ok(bounds.panel<=bounds.width);
     if(process.env.ARCHIVO_SCREENSHOTS)await page.screenshot({path:path.join(process.env.ARCHIVO_SCREENSHOTS,'storage-map-1100.png')});
     assert.deepEqual(errors,[]);console.log('PASS Electron UI: source links, map drill-down, possible/verified copies, safe defaults, schedule save/run/pause, offline preservation, backups, 1100px layout, no renderer errors.');
-  }finally{if(app)await app.close();fs.rmSync(root,{recursive:true,force:true});}
+  }finally{if(app){const timer=setTimeout(()=>app.process().kill(),5000);await app.close().catch(()=>{});clearTimeout(timer);}fs.rmSync(root,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exitCode=1;});

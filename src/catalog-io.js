@@ -8,12 +8,15 @@ const MAX = 512 * 1024 * 1024;
 function fingerprint(file) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
-function read(file) {
+function snapshot(file) {
   if (fs.statSync(file).size > MAX) throw Error('Catalog exceeds the 512 MB limit.');
-  let buf = fs.readFileSync(file);
-  if (buf[0] === 31 && buf[1] === 139) buf = zlib.gunzipSync(buf, { maxOutputLength: MAX });
-  return sanitizeCatalog(JSON.parse(buf.toString('utf8')));
+  const original = fs.readFileSync(file);
+  if (original.length > MAX) throw Error('Catalog exceeds the 512 MB limit.');
+  let body = original;
+  if (body[0] === 31 && body[1] === 139) body = zlib.gunzipSync(body, { maxOutputLength: MAX });
+  return { data: sanitizeCatalog(JSON.parse(body.toString('utf8'))), fingerprint: crypto.createHash('sha256').update(original).digest('hex') };
 }
+function read(file) { return snapshot(file).data; }
 function atomic(file, body) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.tmp-' + crypto.randomUUID();
@@ -41,4 +44,4 @@ function write(file, data, expected, backups) {
   atomic(file, body);
   return fingerprint(file);
 }
-module.exports = { read, write, fingerprint, atomic };
+module.exports = { read, snapshot, write, fingerprint, atomic };

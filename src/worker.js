@@ -29,7 +29,7 @@ const progress=p=>parentPort.postMessage({progress:p});
       const source=sources.resolve(args.binding);
       result={file:sources.realFile(source.root,args.segments),source};break;
     }
-    case 'read':result={data:io.read(args.file),fingerprint:io.fingerprint(args.file)};break;
+    case 'read':result=io.snapshot(args.file);break;
     case 'write':result={fingerprint:io.write(args.file,args.data,args.expected,args.backups)};break;
     default:throw Error('Unknown background operation.');
   }

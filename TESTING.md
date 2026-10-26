@@ -49,7 +49,7 @@ This fork adds background rescans, an offline storage map, and content-verified 
 - Reconnect with a changed Windows drive letter; confirm the correct linked volume is found. Test two drives with the same label and partitions on the same physical disk.
 - Link a server folder, run a schedule, add a test file on the server, and run again. Disconnect the share and confirm the saved tree is preserved.
 - Test a denied folder and unplug a test drive mid-scan: the previous scheduled entry must remain, with an activity entry explaining the incomplete run.
-- Close the window and wait for a short interval schedule. Test sleep/wake and optional launch at login. Tray/menu-bar availability and login behavior require physical OS testing.
+- Close the window and wait for a short interval schedule. Test sleep/wake and optional launch at login. Automated checks cover window hide/reopen behavior; tray/menu-bar accessibility and login behavior still need physical OS testing.
 - Use small, disposable duplicate files, including differently named copies and same-size different contents. Confirm only matching contents become Verified, one copy is retained, and Trash restoration works.
 - Report the platform, steps, expected/actual outcome, and the relevant Schedules activity text. Do not send credentials or private catalog contents.
 
@@ -60,6 +60,7 @@ npm ci
 npm run test:unit
 npm test
 npm run test:features
+npm run test:background
 npm run build:mac:test   # Mac ARM64 DMG + ZIP
 npm run build:win        # Windows x64 installer + portable
 ```

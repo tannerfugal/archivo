@@ -1,7 +1,8 @@
 name: Test builds
 on:
   push:
-    branches: [feature/storage-tools, main]
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +23,7 @@ jobs:
       - run: npm run test:unit
       - run: npm test
       - run: npm run test:features
+      - run: npm run test:background
       - name: Package unsigned Windows x64 test builds
         if: runner.os == 'Windows'
         run: npm run build:win

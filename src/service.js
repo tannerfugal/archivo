@@ -69,7 +69,7 @@ class Service {
   async runSchedule(id) {
     const s=this.settings.schedules.find(s=>s.id===id);if(!s)throw Error('Schedule not found.');
     const doc=this.document();
-    if(this.busy || (doc.path===s.file && (doc.dirty || doc.scanning)))return {deferred:true};
+    if(this.busy || doc.scanning || (doc.path===s.file && doc.dirty))return {deferred:true};
     return this.exclusive('scheduled rescan',async()=>{
       s.running=true;this.save();let updated=0;const notes=[];
       try {

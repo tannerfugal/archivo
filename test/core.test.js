@@ -130,3 +130,19 @@ test('a modification during a full hash cannot produce a verified result',async 
  const root=temporary(t),file=path.join(root,'changing');fs.writeFileSync(file,Buffer.alloc(3000000));let edited=false;
  await assert.rejects(digest(root,['changing'],false,()=>false,()=>{if(!edited){edited=true;fs.appendFileSync(file,'changed');}}),/changed/);
 });
+test('snapshot data and conflict fingerprint come from the same bytes',t=>{
+ const root=temporary(t),file=path.join(root,'snapshot.archivo');io.write(file,{disks:[disk('a',[node('original',10)])]});
+ const snap=io.snapshot(file);assert.equal(snap.fingerprint,io.fingerprint(file));
+ io.write(file,{disks:[disk('a',[node('external',20)])]});
+ assert.equal(snap.data.disks[0].tree[0].name,'original');assert.throws(()=>io.write(file,snap.data,snap.fingerprint,true),/changed/);assert.equal(io.read(file).disks[0].tree[0].name,'external');
+});
+test('background schedules update a closed catalog without touching unsaved edits in another',async t=>{
+ const {service,file,doc}=serviceFixture(t),s=service.addSchedule({diskIds:['a'],enabled:true,rule:{kind:'daily',time:'02:00'}});
+ doc.path=file+'-other';doc.dirty=true;
+ service.jobs.run=async(op,args)=>{if(op==='read')return io.snapshot(file);if(op==='scan')return{tree:[node('scheduled',20)],fileCount:1,source:{}};if(op==='write')return{fingerprint:io.write(args.file,args.data,args.expected,true)};};
+ const r=await service.runSchedule(s.id);assert.equal(r.updated,1);assert.equal(doc.dirty,true);assert.equal(doc.path,file+'-other');assert.equal(io.read(file).disks[0].tree[0].name,'scheduled');
+});
+test('scanner exclusions keep catalogs and backup trees out of their own rescan',async t=>{
+ const root=temporary(t),file=path.join(root,'own.archivo');fs.writeFileSync(file,'catalog');fs.mkdirSync(file+'.backups');fs.writeFileSync(path.join(file+'.backups','previous.archivo'),'backup');fs.writeFileSync(path.join(root,'media.mov'),'media');
+ const result=await require('../src/scanner').scanVolume(root,{exclude:[file,file+'.backups']});assert.equal(result.fileCount,1);assert.equal(result.tree[0].name,'media.mov');assert.equal(result.skipped.count,0);
+});

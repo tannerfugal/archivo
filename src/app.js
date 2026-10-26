@@ -1128,10 +1128,10 @@ async function showAddDisk() {
   g('scan-prog').style.display = 'none';
   g('sp-fill').style.width = '0%';
   g('sp-det').textContent = '';
-  g('add-modal').style.display = 'flex';
+  g('add-modal').style.display = 'flex'; updateUiState();
   await refreshVols();
 }
-function hideAddDisk() { if (scanning) return; g('add-modal').style.display = 'none'; }
+function hideAddDisk() { if (scanning) return; g('add-modal').style.display = 'none'; updateUiState(); }
 
 async function refreshVols() {
   if (scanning) return;
@@ -1399,7 +1399,7 @@ async function commitUpdateDisk(existing, scanData) {
 
 /* ────────────────────────────────────────────────
    UPDATE AN ARCHIVED DISK FROM THE MOUNTED VOLUME
-   Match is automatic by name (label) only.
+   Resolve the locally trusted source binding; never match by label alone.
 ──────────────────────────────────────────────── */
 async function ctxUpdate() {
   if (ctxTarget?.type !== 'disk' || busy()) return;
@@ -1792,10 +1792,11 @@ function updateUiState() {
   set('btn-export-data', open && n > 0);
   set('btn-delete',      open && !locked && !!selected && selected.type === 'disk');
   set('btn-inspector',   open);
-  const sig = open + '|' + n + '|' + scanning;
+  const editing = g('add-modal').style.display === 'flex' || g('mw').style.display === 'flex';
+  const sig = open + '|' + n + '|' + scanning + '|' + editing;
   if (sig !== lastUiSig) {
     lastUiSig = sig;
-    try { window.archivo.uiState({ open, disks: n, scanning }); } catch (e) {}
+    try { window.archivo.uiState({ open, disks: n, scanning, editing }); } catch (e) {}
   }
 }
 
@@ -1835,13 +1836,13 @@ function showModal(t,b,actions) {
     btn.addEventListener('click',a.fn);
     ma.appendChild(btn);
   });
-  g('mw').style.display='flex';
+  g('mw').style.display='flex'; updateUiState();
   // Keyboard: focus the main action, or Cancel when the main action is
   // destructive (Remove), so Enter never deletes by accident.
   const main=ma.querySelector('.btn-p')||ma.querySelector('.btn-g');
   if(main) setTimeout(()=>main.focus(),0);
 }
-function hideModal() { g('mw').style.display='none'; }
+function hideModal() { g('mw').style.display='none'; updateUiState(); }
 
 /* ════════════════════════════════════════════════
    TOAST

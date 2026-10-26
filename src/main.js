@@ -62,6 +62,7 @@ function updateTray() {
     { type: 'separator' }, { label: 'Quit Archivo Fork', click: () => app.quit() }
   ]));
 }
+function loginSettings() { return app.getLoginItemSettings(process.platform === 'win32' ? { args: ['--background'] } : {}); }
 function requireIdle() { if (service.busy) throw Error('Wait for ' + service.busy + ' to finish, or cancel it.'); }
 
 const REPO_URL = 'https://github.com/tannerfugal/archivo';
@@ -190,7 +191,7 @@ function createWindow() {
   mainWindow.on('closed', () => { rendererReady = false; });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  if (process.argv.includes('--background')) mainWindow.hide();
+  if (process.argv.includes('--background') || (process.platform === 'darwin' && loginSettings().wasOpenedAtLogin)) mainWindow.hide();
   mainWindow.webContents.once('did-finish-load', () => {
     applyDocState();
     setTimeout(() => checkForUpdate(false), 1500);
@@ -308,8 +309,8 @@ ipcMain.handle('doc:close', () => { requireIdle(); service.clearSession(); curre
 // no catalog open, no disk to export, a scan running.
 let docUi = { open: false, disks: 0, scanning: false };
 ipcMain.handle('doc:ui-state', (_, st) => {
-  const next = { open: !!(st && st.open), disks: Math.max(0, Number(st && st.disks) || 0), scanning: !!(st && st.scanning) };
-  if (next.open !== docUi.open || next.disks !== docUi.disks || next.scanning !== docUi.scanning) {
+  const next = { open: !!(st && st.open), disks: Math.max(0, Number(st && st.disks) || 0), scanning: !!(st && st.scanning), editing: !!(st && st.editing) };
+  if (next.open !== docUi.open || next.disks !== docUi.disks || next.scanning !== docUi.scanning || next.editing !== docUi.editing) {
     docUi = next;
     buildMenu();
   }
@@ -415,7 +416,7 @@ ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName }) => {
 // ─────────────────────────────────────────────────────────────
 service = new Service({
   directory: app.getPath('userData'),
-  document: () => ({ path: currentPath, dirty: docDirty, scanning: docUi.scanning }),
+  document: () => ({ path: currentPath, dirty: docDirty, scanning: docUi.scanning || docUi.editing }),
   emit: emitFork,
   trash: file => shell.trashItem(file),
   confirmTrash: async count => (await dialog.showMessageBox(mainWindow, { type: 'warning', buttons: ['Cancel', 'Move to Trash'], defaultId: 0, cancelId: 0,
@@ -427,7 +428,7 @@ ipcMain.handle('volumes:info', async (_, root) => { const s = await service.jobs
 ipcMain.handle('volumes:cancel-scan', () => { service.cancel(); return true; });
 ipcMain.handle('volumes:scan', (_, root) => service.scan(root));
 ipcMain.handle('fork:context', (_, data) => service.context(data));
-ipcMain.handle('fork:status', () => ({ ...service.status(), sources: service.sourceStatus(), login: app.getLoginItemSettings().openAtLogin }));
+ipcMain.handle('fork:status', () => ({ ...service.status(), sources: service.sourceStatus(), login: loginSettings().openAtLogin }));
 ipcMain.handle('fork:link-scan', (_, diskId, token) => service.linkScanned(diskId, token));
 ipcMain.handle('fork:resolve', (_, diskId) => service.resolve(diskId));
 ipcMain.handle('fork:scan-bound', (_, diskId) => service.scan(null, service.binding(currentPath, diskId)));
@@ -452,7 +453,7 @@ ipcMain.handle('fork:schedule-save', (_, input) => service.addSchedule(input));
 ipcMain.handle('fork:schedule-action', (_, id, action) => service.scheduleAction(id, action));
 ipcMain.handle('fork:schedule-run', (_, id) => service.runSchedule(id));
 ipcMain.handle('fork:pause', (_, on) => { service.settings.paused = !!on; service.save(); return true; });
-ipcMain.handle('fork:login', (_, on) => { if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) throw Error('Launch at login is available in the installed app. Use the installer rather than the portable build.'); app.setLoginItemSettings({ openAtLogin: !!on, args: ['--background'] }); return app.getLoginItemSettings().openAtLogin; });
+ipcMain.handle('fork:login', (_, on) => { if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) throw Error('Launch at login is available in the installed app. Use the installer rather than the portable build.'); app.setLoginItemSettings({ openAtLogin: !!on, args: ['--background'] }); return loginSettings().openAtLogin; });
 ipcMain.handle('fork:cancel', () => { service.cancel(); return true; });
 ipcMain.handle('fork:duplicates', (_, ids, verify) => service.duplicates(ids, verify === true));
 ipcMain.handle('fork:trash', (_, reportId, ids) => service.trashCopies(reportId, ids));
