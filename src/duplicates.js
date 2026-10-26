@@ -45,16 +45,18 @@ async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()
         physical.add(inode);entry.sample=s.hash;entry.stamp=s.stamp;
       } catch(e) {if(cancelled()) return {cancelled:true,groups:results};entry.status=/changed/i.test(e.message)?'Changed':'Unreadable';entry.reason=e.message;}
     }
-    const sampled=items.filter(i=>i.sample);
+    const sampled=items.filter(i=>i.sample),sampleCounts=new Map();
+    for(const item of sampled)sampleCounts.set(item.sample,(sampleCounts.get(item.sample)||0)+1);
     for (const item of sampled) {
-      if (sampled.filter(i=>i.sample===item.sample).length<2) {item.status='Different';continue;}
+      if (sampleCounts.get(item.sample)<2) {item.status='Different';continue;}
       try {
         const full=await digest(sources.get(item.diskId).root,item.segments,false,cancelled,n=>progress({bytes:n}));
         item.hash=full.hash;item.stamp=full.stamp;item.status='Verified';
       } catch(e) {if(cancelled()) return {cancelled:true,groups:results};item.status=/changed/i.test(e.message)?'Changed':'Unreadable';item.reason=e.message;}
       progress({files:++done,path:item.segments.join('/')});
     }
-    for (const item of items.filter(i=>i.hash)) if (items.filter(i=>i.hash===item.hash).length<2) item.status='Different';
+    const fullCounts=new Map();for(const item of items)if(item.hash)fullCounts.set(item.hash,(fullCounts.get(item.hash)||0)+1);
+    for(const item of items)if(item.hash && fullCounts.get(item.hash)<2)item.status='Different';
     results.push({size:group.size,items});
     progress({groups:results.length,total:groups.length});
   }
@@ -64,7 +66,8 @@ async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()
     catch(e) { for(const item of results.flatMap(g=>g.items).filter(i=>i.diskId===disk.id)){item.status='Offline';item.reason=e.message;delete item.hash;} }
   }
   const verified=results.flatMap(g=>g.items).filter(i=>i.status==='Verified');
-  for(const item of verified)if(verified.filter(i=>i.hash===item.hash).length<2){item.status='Possible';delete item.hash;}
+  const verifiedCounts=new Map();for(const item of verified)verifiedCounts.set(item.hash,(verifiedCounts.get(item.hash)||0)+1);
+  for(const item of verified)if(verifiedCounts.get(item.hash)<2){item.status='Possible';delete item.hash;}
   return {groups:results,cancelled:false};
 }
 function trashSelection(report, ids) {

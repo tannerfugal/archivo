@@ -35,6 +35,7 @@ const GZIP_LEVEL = 6;
 const MAX_CATALOG_BYTES = 512 * 1024 * 1024;
 
 app.setName('Archivo Fork');
+if (process.platform === 'win32') app.setAppUserModelId('com.tannerfugal.archivofork');
 app.setPath('userData', process.env.ARCHIVO_TEST_DATA || path.join(app.getPath('appData'), 'Archivo Fork'));
 let mainWindow, tray, timer, quitting = false, docFingerprint;
 let service;
@@ -451,7 +452,7 @@ ipcMain.handle('fork:schedule-save', (_, input) => service.addSchedule(input));
 ipcMain.handle('fork:schedule-action', (_, id, action) => service.scheduleAction(id, action));
 ipcMain.handle('fork:schedule-run', (_, id) => service.runSchedule(id));
 ipcMain.handle('fork:pause', (_, on) => { service.settings.paused = !!on; service.save(); return true; });
-ipcMain.handle('fork:login', (_, on) => { if (!app.isPackaged) throw Error('Launch at login is available in the installed app.'); app.setLoginItemSettings({ openAtLogin: !!on, args: ['--background'] }); return app.getLoginItemSettings().openAtLogin; });
+ipcMain.handle('fork:login', (_, on) => { if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) throw Error('Launch at login is available in the installed app. Use the installer rather than the portable build.'); app.setLoginItemSettings({ openAtLogin: !!on, args: ['--background'] }); return app.getLoginItemSettings().openAtLogin; });
 ipcMain.handle('fork:cancel', () => { service.cancel(); return true; });
 ipcMain.handle('fork:duplicates', (_, ids, verify) => service.duplicates(ids, verify === true));
 ipcMain.handle('fork:trash', (_, reportId, ids) => service.trashCopies(reportId, ids));

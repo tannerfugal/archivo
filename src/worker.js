@@ -17,6 +17,7 @@ const progress=p=>parentPort.postMessage({progress:p});
       if (!result.cancelled && !sources.same(source,sources.identify(source.root))) throw Error('Source changed during scanning; previous catalog preserved.');
       result.source=source;break;
     }
+    case 'candidates': result=require('./analysis').candidates(args.disks);break;
     case 'verify':result=await verify(args.disks,args.bindings,sources.resolve,cancelled,progress);break;
     case 'digest': {
       const source=sources.resolve(args.binding);

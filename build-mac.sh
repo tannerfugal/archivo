@@ -9,7 +9,7 @@ case "${1:-}" in
   --notarize)
     export APPLE_KEYCHAIN_PROFILE="${NOTARY_PROFILE:-archivo-notarization}"
     xcrun notarytool history --keychain-profile "$APPLE_KEYCHAIN_PROFILE" >/dev/null
-    npx electron-builder --mac --arm64 --config.mac.notarize=true
+    npx electron-builder --mac --arm64 --config.mac.notarize=true --publish never
     ;;
   ''|--quick) npm run build:mac:test ;;
   *) echo 'Usage: build-mac.sh [--unsigned | --quick | --notarize]'; exit 1 ;;

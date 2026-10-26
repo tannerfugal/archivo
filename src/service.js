@@ -6,7 +6,6 @@ const {atomic}=require('./catalog-io');
 const {sanitizeCatalog}=require('./catalog');
 const {validateRule,nextRun,advance}=require('./schedule');
 const {trashSelection}=require('./duplicates');
-const {candidates}=require('./analysis');
 class Service {
   constructor({directory,document,emit,trash,confirmTrash}) {
     this.directory=directory;this.file=path.join(directory,'background.json');this.jobs=new Jobs();
@@ -114,7 +113,7 @@ class Service {
     return this.exclusive(verify?'duplicate verification':'duplicate search',async()=>{
       let report;
       if(verify)report=await this.jobs.run('verify',{disks,bindings:this.bindings(file,disks)},p=>this.emit('progress',p));
-      else report={groups:candidates(disks).map(g=>({...g,items:g.items.map(i=>({...i,id:crypto.randomUUID(),status:this.binding(file,i.diskId)?'Possible':'Offline'}))}))};
+      else report={groups:(await this.jobs.run('candidates',{disks})).map(g=>({...g,items:g.items.map(i=>({...i,id:crypto.randomUUID(),status:this.binding(file,i.diskId)?'Possible':'Offline'}))}))};
       report.id=crypto.randomUUID();report.file=file;report.catalog=JSON.stringify(this.live);this.reports.clear();this.reports.set(report.id,report);
       return report;
     });
