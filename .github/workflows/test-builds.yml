@@ -34,6 +34,21 @@ jobs:
         run: npm run build:mac:test
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify packaged Windows application
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:ARCHIVO_APP_EXECUTABLE = Join-Path $PWD 'dist\win-unpacked\Archivo Fork.exe'
+          npm run test:features
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:background
+          exit $LASTEXITCODE
+      - name: Verify packaged Mac application
+        if: runner.os == 'macOS'
+        run: |
+          export ARCHIVO_APP_EXECUTABLE="$PWD/dist/mac-arm64/Archivo Fork.app/Contents/MacOS/Archivo Fork"
+          npm run test:features
+          npm run test:background
       - name: Upload installable builds
         uses: actions/upload-artifact@v4
         with:
