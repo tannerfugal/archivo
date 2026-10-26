@@ -58,8 +58,10 @@ async function scanVolume(mountPoint, opts = {}) {
   try { fs.readdirSync(mountPoint); }
   catch (e) { throw new Error(`Cannot read ${mountPoint}: ${e.code || e.message}`); }
 
+  const rootDevice = fs.statSync(mountPoint).dev;
+  const excluded = new Set((opts.exclude || []).map(p=>path.resolve(p)));
   const isWin  = platform === 'win32';
-  const isRoot = mountPoint === '/' || (isWin && /^[A-Za-z]:\\?$/.test(mountPoint));
+  const isRoot = opts.system === true || mountPoint === '/';
   const shouldSkip = (name, depth) => {
     if (name.startsWith('.') || SKIP.has(name)) return true;
     if (isRoot && depth === 0 && ROOT_SKIP.has(name)) return true;
@@ -84,7 +86,7 @@ async function scanVolume(mountPoint, opts = {}) {
     try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
       if (isCancelled() || indeterminate) return;
-      if (shouldSkip(e.name, depth)) continue;
+      if (shouldSkip(e.name, depth) || excluded.has(path.resolve(dirPath,e.name))) continue;
       if (e.isDirectory()) {
         await countFiles(path.join(dirPath, e.name), depth + 1);
       } else if (e.isFile()) {
@@ -109,14 +111,15 @@ async function scanVolume(mountPoint, opts = {}) {
   const startTime = Date.now();
 
   async function walk(dirPath, depth) {
-    if (depth > MAX_DEPTH || isCancelled()) return [];
+    if (depth > MAX_DEPTH) { noteSkipped(dirPath); return []; }
+    if (isCancelled()) return [];
     let entries;
     try { entries = fs.readdirSync(dirPath, { withFileTypes: true }); }
     catch { noteSkipped(dirPath); return []; }
     const nodes = [];
     for (const e of entries) {
       if (isCancelled()) return nodes;
-      if (shouldSkip(e.name, depth)) continue;
+      if (shouldSkip(e.name, depth) || excluded.has(path.resolve(dirPath,e.name))) continue;
       // Symbolic links are neither files nor folders here: skipped on purpose,
       // so a link pointing back up the tree can never loop the scan.
       if (!e.isDirectory() && !e.isFile()) continue;
@@ -124,13 +127,14 @@ async function scanVolume(mountPoint, opts = {}) {
       let stat;
       try { stat = fs.statSync(full); }
       catch { noteSkipped(full); continue; }
+      if (e.isDirectory() && stat.dev !== rootDevice) { noteSkipped(full); continue; }
       if (e.isDirectory()) {
         const children = await walk(full, depth + 1);
         const dirSize  = children.reduce((sum, c) => sum + (c.size || 0), 0);
-        nodes.push({ type:'dir', name:e.name, size:dirSize, modified:stat.mtime.toISOString().slice(0,10), children });
+        nodes.push({ type:'dir', name:e.name, size:dirSize, modified:stat.mtime.toISOString().slice(0,10), mtime_ms:stat.mtimeMs, children });
       } else {
         done++;
-        nodes.push({ type:'file', name:e.name, size:stat.size, modified:stat.mtime.toISOString().slice(0,10) });
+        nodes.push({ type:'file', name:e.name, size:stat.size, modified:stat.mtime.toISOString().slice(0,10), mtime_ms:stat.mtimeMs });
         const now = Date.now();
         if (now - lastEmit > 60) {
           lastEmit = now;

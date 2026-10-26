@@ -45,7 +45,8 @@ echo -e "${BLUE}[3/5]${NC} Checking Wine..."
 if ! command -v wine64 &>/dev/null && ! command -v wine &>/dev/null; then
   echo -e "${YELLOW}! Wine not found. Installing wine-stable via Homebrew...${NC}"
   echo -e "  (This is a large download and can take several minutes.)"
-  brew install --cask wine-stable
+  echo 'Install Wine yourself, or use the Windows GitHub Actions build described in TESTING.md.'
+  exit 1
 else
   WINE_BIN=$(command -v wine64 || command -v wine)
   echo -e "${GREEN}OK Wine present ($("$WINE_BIN" --version 2>/dev/null || echo 'installed'))${NC}"
@@ -81,8 +82,8 @@ npm run build:win
 echo ""
 echo -e "${BOLD}${CYAN}===================================================${NC}"
 echo -e "${GREEN}Done. Find your Windows build in  dist/ :${NC}"
-echo -e "  - ${BOLD}archivo Setup ${VERSION}.exe${NC}   (installer)"
-echo -e "  - ${BOLD}archivo ${VERSION}.exe${NC}         (portable, no install)"
+echo -e "  - ${BOLD}Archivo Fork Setup ${VERSION}.exe${NC}   (installer)"
+echo -e "  - ${BOLD}Archivo Fork ${VERSION}.exe${NC}         (portable, no install)"
 echo -e "${BOLD}${CYAN}===================================================${NC}"
 echo ""
 echo -e "${YELLOW}Note:${NC} test the .exe on a real Windows machine before distributing."

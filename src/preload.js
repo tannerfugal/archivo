@@ -64,5 +64,26 @@ contextBridge.exposeInMainWorld('archivo', {
   onUpdateAvailable: cb    => { ipcRenderer.on('update-available', (_, d) => cb(d)); return () => ipcRenderer.removeAllListeners('update-available'); },
   onUpdateNone:      cb    => ipcRenderer.on('update-none', (_, d) => cb(d)),
 
+  context: data => ipcRenderer.invoke('fork:context', data),
+  toolsStatus: () => ipcRenderer.invoke('fork:status'),
+  linkScan: (diskId, token) => ipcRenderer.invoke('fork:link-scan', diskId, token),
+  resolveSource: diskId => ipcRenderer.invoke('fork:resolve', diskId),
+  scanBound: diskId => ipcRenderer.invoke('fork:scan-bound', diskId),
+  locateSource: diskId => ipcRenderer.invoke('fork:locate', diskId),
+  pickSource: () => ipcRenderer.invoke('fork:pick-source'),
+  revealSource: (diskId, segments) => ipcRenderer.invoke('fork:reveal', diskId, segments),
+  saveSchedule: input => ipcRenderer.invoke('fork:schedule-save', input),
+  scheduleAction: (id, action) => ipcRenderer.invoke('fork:schedule-action', id, action),
+  runSchedule: id => ipcRenderer.invoke('fork:schedule-run', id),
+  pauseSchedules: on => ipcRenderer.invoke('fork:pause', on),
+  launchAtLogin: on => ipcRenderer.invoke('fork:login', on),
+  cancelJob: () => ipcRenderer.invoke('fork:cancel'),
+  findDuplicates: (ids, verify) => ipcRenderer.invoke('fork:duplicates', ids, verify),
+  trashCopies: (reportId, ids) => ipcRenderer.invoke('fork:trash', reportId, ids),
+  showBackups: () => ipcRenderer.invoke('fork:backups'),
+  onFork: (kind, cb) => {
+    if (!['status','scan','progress','catalog','cleanup','view'].includes(kind)) return;
+    ipcRenderer.on('fork:' + kind, (_, data) => cb(data));
+  },
   platform: process.platform,
 });

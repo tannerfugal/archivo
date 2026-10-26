@@ -17,14 +17,13 @@
  */
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Tray, nativeImage, powerMonitor } = require('electron');
 const path   = require('path');
 const fs     = require('fs');
 const os     = require('os');
 const zlib   = require('zlib');
-const https  = require('https');
-const { execSync, execFileSync } = require('child_process');
-const { scanVolume } = require('./scanner');
+const { Service } = require('./service');
+const catalogIO = require('./catalog-io');
 const { buildExportHtml } = require('./export-viewer');
 const { sanitizeCatalog } = require('./catalog');
 
@@ -35,9 +34,36 @@ const GZIP_LEVEL = 6;
 // file from inflating into gigabytes (a "zip bomb") and taking the app down.
 const MAX_CATALOG_BYTES = 512 * 1024 * 1024;
 
-let mainWindow;
+app.setName('Archivo Fork');
+app.setPath('userData', process.env.ARCHIVO_TEST_DATA || path.join(app.getPath('appData'), 'Archivo Fork'));
+let mainWindow, tray, timer, quitting = false, docFingerprint;
+let service;
+function emitFork(kind, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('fork:' + kind, data);
+  if (kind === 'scan' && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('scan:progress', data);
+  if (kind === 'catalog' && currentPath === data.path) docFingerprint = data.fingerprint;
+  if (kind === 'status') updateTray();
+}
+function showWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  mainWindow.show(); mainWindow.focus();
+}
+function updateTray() {
+  if (!tray || !service) return;
+  const st = service.status();
+  const attention = st.activity[0]?.status === 'attention';
+  tray.setToolTip('Archivo Fork' + (st.busy ? ' · ' + st.busy : st.paused ? ' · Schedules paused' : attention ? ' · Action needed' : ' · Background rescans ready'));
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Open Archivo Fork', click: showWindow },
+    { label: attention ? 'Action needed — open activity' : st.busy ? 'Working: ' + st.busy : 'Schedules', click: () => { showWindow(); emitFork('view', 'schedules'); } },
+    { label: st.paused ? 'Resume schedules' : 'Pause schedules', click: () => { service.settings.paused = !service.settings.paused; service.save(); } },
+    { label: 'Run due scans', enabled: !st.busy, click: () => service.tick().catch(console.error) },
+    { type: 'separator' }, { label: 'Quit Archivo Fork', click: () => app.quit() }
+  ]));
+}
+function requireIdle() { if (service.busy) throw Error('Wait for ' + service.busy + ' to finish, or cancel it.'); }
 
-const REPO_URL = 'https://github.com/noar-justedit/archivo';
+const REPO_URL = 'https://github.com/tannerfugal/archivo';
 
 // ─────────────────────────────────────────────────────────────
 // DOCUMENT STATE — archivo behaves like a document-based app:
@@ -83,7 +109,7 @@ app.on('open-file', (event, filePath) => {
 function requestOpen(filePath) {
   if (rendererReady && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('doc:open-request', filePath);
-    mainWindow.focus();
+    mainWindow.show(); mainWindow.focus();
   } else {
     pendingOpenPath = filePath;
   }
@@ -91,64 +117,21 @@ function requestOpen(filePath) {
 
 // ── Update check — reads version.json hosted in the GitHub repo ──
 // Never blocks startup, fails silently on any network issue.
-const UPDATE_URL = 'https://raw.githubusercontent.com/noar-justedit/archivo/main/version.json';
-function semverGt(a, b) {
-  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
-  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] || 0, y = pb[i] || 0;
-    if (x > y) return true;
-    if (x < y) return false;
-  }
-  return false;
-}
-// GET a URL following up to 3 redirects (https.get does NOT follow them itself).
-function fetchFollow(url, hops, cb) {
-  if (hops > 3) return cb(null);
-  try {
-    const req = https.get(url, { timeout: 4000 }, (res) => {
-      if ([301,302,303,307,308].includes(res.statusCode) && res.headers.location) {
-        res.resume();
-        let next; try { next = new URL(res.headers.location, url).toString(); } catch (e) { return cb(null); }
-        return fetchFollow(next, hops + 1, cb);
-      }
-      if (res.statusCode !== 200) { res.resume(); return cb(null); }
-      let body = '';
-      res.on('data', c => body += c);
-      res.on('end', () => cb(body));
-    });
-    req.on('timeout', () => req.destroy());
-    req.on('error', () => cb(null));
-  } catch (e) { cb(null); }
-}
+const UPDATE_URL = 'https://raw.githubusercontent.com/tannerfugal/archivo/main/version.json';
 // The update manifest is fetched from the network: its link is only honoured
 // if it points at archivo's own repository on GitHub, otherwise the fixed
 // Releases page is used. A tampered manifest cannot send users elsewhere.
 function safeReleaseUrl(u) {
   try {
     const x = new URL(String(u));
-    if (x.protocol === 'https:' && x.hostname === 'github.com' && x.pathname.startsWith('/noar-justedit/archivo')) return x.toString();
+    if (x.protocol === 'https:' && x.hostname === 'github.com' && (x.pathname === '/tannerfugal/archivo' || x.pathname.startsWith('/tannerfugal/archivo/'))) return x.toString();
   } catch (e) {}
   return REPO_URL + '/releases';
 }
 // interactive = triggered from the Help menu, so report "up to date" / "failed"
 // as well. The silent launch check stays silent.
 function checkForUpdate(interactive) {
-  const say = (channel, payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
-  };
-  fetchFollow(UPDATE_URL, 0, (body) => {
-    if (!body) { if (interactive) say('update-none', { failed: true }); return; }
-    let data; try { data = JSON.parse(body); } catch (e) { if (interactive) say('update-none', { failed: true }); return; }
-    const info = data.archivo;
-    if (!info || !info.version) { if (interactive) say('update-none', { failed: true }); return; }
-    if (!/^\d+\.\d+\.\d+$/.test(String(info.version))) { if (interactive) say('update-none', { failed: true }); return; }
-    if (semverGt(info.version, app.getVersion())) {
-      say('update-available', { version: String(info.version), url: safeReleaseUrl(info.url) });
-    } else if (interactive) {
-      say('update-none', { failed: false, version: app.getVersion() });
-    }
-  });
+  if (interactive) dialog.showMessageBox(mainWindow, { message: 'Test build', detail: 'Automatic update prompts are disabled. Download test builds from your fork’s Actions page.' });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -185,6 +168,7 @@ function createWindow() {
   // Unsaved-changes guard. Closing the window is also what quitting does,
   // so this covers Cmd+Q / Alt+F4 / the red button in one place.
   mainWindow.on('close', (e) => {
+    if (!quitting && !process.env.ARCHIVO_TEST_MODE) { e.preventDefault(); mainWindow.hide(); return; }
     if (forceClose || !docDirty) return;
     e.preventDefault();
     const choice = dialog.showMessageBoxSync(mainWindow, {
@@ -195,16 +179,17 @@ function createWindow() {
       message:   `Save changes to "${docBaseName()}" before closing?`,
       detail:    "If you don't save, your changes will be lost.",
     });
-    if (choice === 2) return;                       // Cancel
+    if (choice === 2) { quitting = false; return; }                       // Cancel
     if (choice === 1) { forceClose = true; mainWindow.close(); return; }  // Don't Save
     // Save: the renderer owns the catalog, so it saves then calls back.
     mainWindow.webContents.send('menu:command', { cmd: 'save-and-close' });
   });
 
   // A scan left running would keep walking a disk for nothing.
-  mainWindow.on('closed', () => { if (activeScan) activeScan.cancelled = true; });
+  mainWindow.on('closed', () => { rendererReady = false; });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  if (process.argv.includes('--background')) mainWindow.hide();
   mainWindow.webContents.once('did-finish-load', () => {
     applyDocState();
     setTimeout(() => checkForUpdate(false), 1500);
@@ -217,7 +202,7 @@ function docBaseName() {
 }
 function applyDocState() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.setTitle('archivo — ' + docBaseName() + (docDirty ? ' — Edited' : ''));
+  mainWindow.setTitle('Archivo Fork — ' + docBaseName() + (docDirty ? ' — Edited' : ''));
   if (process.platform === 'darwin') {
     try { mainWindow.setRepresentedFilename(currentPath || ''); } catch (e) {}
     try { mainWindow.setDocumentEdited(docDirty); } catch (e) {}
@@ -228,13 +213,22 @@ app.whenReady().then(() => {
   if (!pendingOpenPath) pendingOpenPath = argvCatalog(process.argv);
   buildMenu();
   createWindow();
+  if (!process.env.ARCHIVO_TEST_MODE) {
+    const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'app-icon.png')).resize({ width: 18, height: 18 });
+    tray = new Tray(icon); tray.on('click', showWindow); updateTray();
+    timer = setInterval(() => service.tick().catch(console.error), 15000);
+    powerMonitor.on('resume', () => service.tick().catch(console.error));
+    setTimeout(() => service.tick().catch(console.error), 3000);
+  }
 });
+app.on('before-quit', () => { quitting = true; });
+app.on('will-quit', () => { clearInterval(timer); service.jobs.stop(); });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (quitting || process.env.ARCHIVO_TEST_MODE) app.quit();
 });
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  showWindow();
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -306,8 +300,8 @@ ipcMain.handle('recents:clear', () => clearRecents());
 // The renderer tells us when the catalog becomes dirty/clean and when it
 // starts a new or closes the current document; we own the path and title.
 ipcMain.handle('doc:set-dirty', (_, d) => { docDirty = !!d; applyDocState(); return true; });
-ipcMain.handle('doc:new',   () => { currentPath = null; docDirty = false; applyDocState(); return true; });
-ipcMain.handle('doc:close', () => { currentPath = null; docDirty = false; applyDocState(); return true; });
+ipcMain.handle('doc:new',   () => { requireIdle(); service.clearSession(); currentPath = null; docFingerprint = undefined; docDirty = false; applyDocState(); return true; });
+ipcMain.handle('doc:close', () => { requireIdle(); service.clearSession(); currentPath = null; docFingerprint = undefined; docDirty = false; applyDocState(); return true; });
 
 // What the menu needs to know to grey out what makes no sense right now:
 // no catalog open, no disk to export, a scan running.
@@ -331,7 +325,7 @@ ipcMain.handle('doc:ready', () => {
 
 // The renderer has finished saving on the way out (or gave up).
 ipcMain.handle('window:force-close', (_, ok) => {
-  if (ok === false) return true;   // save failed/cancelled → stay open
+  if (ok === false) { quitting = false; return true; }   // save failed/cancelled → stay open
   forceClose = true;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
   return true;
@@ -350,40 +344,6 @@ ipcMain.handle('shell:external', (_, url) => {
 // transparently (gzip magic bytes) and written uncompressed if the
 // user explicitly picks the .json filter.
 // ─────────────────────────────────────────────────────────────
-function readCatalogFile(filePath) {
-  const tooBig = () => new Error('This catalog is too large to open (over 512 MB once decompressed).');
-  if (fs.statSync(filePath).size > MAX_CATALOG_BYTES) throw tooBig();
-  const buf = fs.readFileSync(filePath);
-  let raw;
-  if (buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-    try { raw = zlib.gunzipSync(buf, { maxOutputLength: MAX_CATALOG_BYTES }).toString('utf8'); }
-    catch (e) {
-      if (e && (e.code === 'ERR_BUFFER_TOO_LARGE' || e instanceof RangeError)) throw tooBig();
-      throw new Error('This file is damaged or is not an archivo catalog.');
-    }
-  } else {
-    raw = buf.toString('utf8');
-  }
-  let data;
-  try { data = JSON.parse(raw); }
-  catch (e) { throw new Error('This file is damaged or is not an archivo catalog.'); }
-  // Rebuilt field by field: a catalog from someone else is untrusted input.
-  return sanitizeCatalog(data);
-}
-
-// Write through a temp file in the same folder, then rename: an interrupted
-// save can never truncate the catalog you already had on disk.
-function writeCatalogFile(filePath, catalog) {
-  const json = JSON.stringify(catalog);
-  const body = filePath.toLowerCase().endsWith('.json')
-    ? Buffer.from(json, 'utf8')
-    : zlib.gzipSync(Buffer.from(json, 'utf8'), { level: GZIP_LEVEL });
-  const tmp = filePath + '.tmp-' + process.pid;
-  fs.writeFileSync(tmp, body);
-  fs.renameSync(tmp, filePath);
-  return filePath;
-}
-
 function defaultSaveDir() {
   try {
     const d = app.getPath('documents');
@@ -394,6 +354,7 @@ function defaultSaveDir() {
 
 // path optional: when given (double-click, recents, drag & drop) no dialog.
 ipcMain.handle('catalog:open', async (_, filePath) => {
+  requireIdle();
   let fp = filePath;
   if (!fp) {
     const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
@@ -404,7 +365,8 @@ ipcMain.handle('catalog:open', async (_, filePath) => {
     if (canceled || !filePaths.length) return null;
     fp = filePaths[0];
   }
-  const data = readCatalogFile(fp);
+  const loaded = await service.exclusive('opening catalog', () => service.jobs.run('read', { file: fp }));
+  const data = loaded.data; docFingerprint = loaded.fingerprint; service.clearSession(); service.context(data);
   currentPath = fp;
   docDirty    = false;
   applyDocState();
@@ -415,7 +377,10 @@ ipcMain.handle('catalog:open', async (_, filePath) => {
 // Save in place. Returns { needsPath:true } when the catalog was never saved.
 ipcMain.handle('catalog:save', async (_, catalog) => {
   if (!currentPath) return { needsPath: true };
-  writeCatalogFile(currentPath, catalog);
+  requireIdle();
+  const clean = sanitizeCatalog(catalog);
+  const written = await service.exclusive('saving catalog', () => service.jobs.run('write', { file: currentPath, data: clean, expected: docFingerprint, backups: true }));
+  docFingerprint = written.fingerprint; service.context(clean);
   docDirty = false;
   applyDocState();
   addRecent(currentPath);
@@ -423,8 +388,9 @@ ipcMain.handle('catalog:save', async (_, catalog) => {
 });
 
 ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName }) => {
+  requireIdle();
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    title:       'Save archivo Catalog',
+    title:       'Save Archivo Fork Catalog',
     defaultPath: currentPath || path.join(defaultSaveDir(), suggestedName || 'archivo_catalog.archivo'),
     filters:     [
       { name: 'archivo Catalog (compressed)', extensions: ['archivo'] },
@@ -432,8 +398,11 @@ ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName }) => {
     ]
   });
   if (canceled || !filePath) return null;
-  writeCatalogFile(filePath, catalog);
-  currentPath = filePath;
+  requireIdle();
+  const clean = sanitizeCatalog(catalog);
+  const written = await service.exclusive('saving catalog', () => service.jobs.run('write', { file: filePath, data: clean, expected: filePath === currentPath ? docFingerprint : undefined, backups: true }));
+  service.migrate(currentPath, filePath, clean.disks); service.context(clean);
+  docFingerprint = written.fingerprint; currentPath = filePath;
   docDirty    = false;
   applyDocState();
   addRecent(filePath);
@@ -443,191 +412,52 @@ ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName }) => {
 // ─────────────────────────────────────────────────────────────
 // VOLUMES — df (macOS) / PowerShell + wmic fallback (Windows)
 // ─────────────────────────────────────────────────────────────
-ipcMain.handle('volumes:list', () => {
-  if (process.platform === 'win32') return listVolumesWin();
-  return listVolumesMac();
+service = new Service({
+  directory: app.getPath('userData'),
+  document: () => ({ path: currentPath, dirty: docDirty, scanning: docUi.scanning }),
+  emit: emitFork,
+  trash: file => shell.trashItem(file),
+  confirmTrash: async count => (await dialog.showMessageBox(mainWindow, { type: 'warning', buttons: ['Cancel', 'Move to Trash'], defaultId: 0, cancelId: 0,
+    message: 'Move ' + count + ' verified duplicate copies to Trash?', detail: 'A verified copy will be kept. Network files and files that have changed will remain untouched.' })).response === 1,
 });
-
-function listVolumesMac() {
-  try {
-    const raw   = execSync('df -Pk', { encoding: 'utf8' });
-    const lines = raw.trim().split('\n').slice(1);
-    const seen  = new Set(); // deduplicate by mount point
-    const vols  = [];
-
-    for (const line of lines) {
-      const p = line.trim().split(/\s+/);
-      if (p.length < 6) continue;
-      const fs_type = p[0], mount = p[5];
-
-      // Skip pseudo filesystems
-      if (fs_type === 'devfs') continue;
-      if (fs_type.startsWith('map ') || fs_type === 'map') continue;
-      if (fs_type === 'nullfs') continue;
-      if (mount === '/dev') continue;
-
-      // Skip system internal volumes (keep only / and /Volumes/*)
-      if (mount.startsWith('/System/Volumes/')) continue;
-      if (mount.startsWith('/private/')) continue;
-      if (mount.startsWith('/Library/')) continue;
-
-      // Deduplicate
-      if (seen.has(mount)) continue;
-      seen.add(mount);
-
-      const total = parseInt(p[1]) * 1024;
-      const free  = parseInt(p[3]) * 1024;
-      if (total === 0) continue; // skip zero-size pseudo volumes
-
-      const name = mount === '/' ? 'Macintosh HD'
-                 : path.basename(mount) || mount;
-
-      // Determine volume type for icon
-      const isUSB     = mount.startsWith('/Volumes/') && !mount.includes('NetDisk');
-      const isNetwork = fs_type.includes('nfs') || fs_type.includes('smb') || fs_type.includes('afp')
-                     || fs_type.includes('webdav') || mount.includes('NetDisk');
-      const isSystem  = mount === '/';
-      const volType   = isNetwork ? 'network' : isSystem ? 'system' : isUSB ? 'usb' : 'unknown';
-
-      vols.push({
-        name,
-        mount_point: mount,
-        total_bytes: total,
-        free_bytes:  free,
-        file_system: fs_type,
-        removable:   isUSB,
-        vol_type:    volType,
-      });
-    }
-    return vols;
-  } catch(e) { return []; }
-}
-
-function listVolumesWin() {
-  // Preferred: PowerShell CIM with JSON output. Robust to commas in names,
-  // and works on Windows 11 24H2+ where wmic has been removed.
-  try {
-    const raw = execFileSync('powershell.exe',
-      ['-NoProfile','-Command',
-       'Get-CimInstance Win32_LogicalDisk | Select-Object Caption,FreeSpace,Size,FileSystem,VolumeName,DriveType | ConvertTo-Json'],
-      { encoding: 'utf8' });
-    let data = JSON.parse(raw);
-    if (!Array.isArray(data)) data = [data];
-    const vols = data.map(o => {
-      const total = parseInt(o.Size || '0'), free = parseInt(o.FreeSpace || '0');
-      if (!total) return null;
-      const dt = parseInt(o.DriveType || '0');
-      const caption = String(o.Caption || '').toUpperCase();
-      let volType = 'unknown';
-      if (dt === 4) volType = 'network';
-      else if (dt === 2) volType = 'usb';
-      else if (dt === 3) volType = (caption === 'C:') ? 'system' : 'unknown';
-      return {
-        name: String(o.VolumeName || o.Caption || ''),
-        mount_point: caption.endsWith('\\') ? caption : caption + '\\',
-        total_bytes: total, free_bytes: free,
-        file_system: String(o.FileSystem || ''),
-        removable: dt === 2,
-        vol_type: volType,
-      };
-    }).filter(Boolean);
-    if (vols.length) return vols;
-  } catch {}
-  // Fallback: wmic (older Windows only)
-  try {
-    const raw   = execSync('wmic logicaldisk get Caption,FreeSpace,Size,FileSystem,VolumeName,DriveType /format:csv', { encoding: 'utf8' });
-    const lines = raw.trim().split('\n').map(l => l.trim()).filter(Boolean);
-    const headerIdx = lines.findIndex(l => l.startsWith('Node,'));
-    if (headerIdx < 0 || lines.length < headerIdx + 2) return [];
-    const header = lines[headerIdx].split(',');
-    return lines.slice(headerIdx + 1).map(line => {
-      const row = line.split(',');
-      const o   = Object.fromEntries(header.map((h, i) => [h.trim(), (row[i]||'').trim()]));
-      const total = parseInt(o['Size']||'0'), free = parseInt(o['FreeSpace']||'0');
-      if (!total) return null;
-      const dt = parseInt(o['DriveType']||'0');
-      const caption = (o['Caption']||'').toUpperCase();
-      let volType = 'unknown';
-      if (dt === 4) volType = 'network';
-      else if (dt === 2) volType = 'usb';
-      else if (dt === 3) volType = (caption === 'C:') ? 'system' : 'unknown';
-      return {
-        name: o['VolumeName'] || o['Caption'],
-        mount_point: caption.endsWith('\\') ? caption : caption + '\\',
-        total_bytes: total, free_bytes: free,
-        file_system: o['FileSystem'] || '',
-        removable: dt === 2,
-        vol_type: volType,
-      };
-    }).filter(Boolean);
-  } catch { return []; }
-}
-
-// ─────────────────────────────────────────────────────────────
-// DISK INFO — diskutil (macOS) / PowerShell (Windows)
-// ─────────────────────────────────────────────────────────────
-ipcMain.handle('volumes:info', (_, mountPoint) => {
-  if (process.platform === 'darwin') {
-    try {
-      // execFileSync with an args array: no shell, no injection via volume names
-      const raw = execFileSync('diskutil', ['info', String(mountPoint)], { encoding: 'utf8' });
-      const get = key => { const m = raw.match(new RegExp(`${key}\\s*:\\s*(.+)`, 'i')); return m ? m[1].trim() : '—'; };
-      return { model: get('Media Name'), serial: get('Media Serial Number'), iface: get('Protocol') };
-    } catch { return { model: '—', serial: '—', iface: '—' }; }
-  }
-  if (process.platform === 'win32') {
-    // Before 1.4.0 this returned the FIRST physical disk of the PC whatever
-    // the volume (usually the system disk): every disk added on Windows got
-    // the same serial number, and all looked like duplicates of each other.
-    // Now: drive letter → its partition → its physical disk. If that fails,
-    // "unknown" — never another disk's serial.
-    const m = /^([A-Za-z]):/.exec(String(mountPoint || ''));
-    if (m) {
-      try {
-        const raw = execFileSync('powershell.exe',
-          ['-NoProfile','-NonInteractive','-Command',
-           // [string] turns the bus type into its name ("USB"), not a number.
-           `$d = Get-Partition -DriveLetter ${m[1].toUpperCase()} | Get-Disk | Select-Object -First 1; ` +
-           `if ($d) { @{ model = [string]$d.FriendlyName; serial = [string]$d.SerialNumber; bus = [string]$d.BusType } | ConvertTo-Json -Compress }`],
-          { encoding: 'utf8', timeout: 8000, windowsHide: true });
-        const data = raw.trim() ? JSON.parse(raw) : null;
-        if (data) {
-          return { model:  String(data.model  || '').trim() || '—',
-                   serial: String(data.serial || '').trim() || '—',
-                   iface:  String(data.bus    || '').trim() || '—' };
-        }
-      } catch {}
-    }
-    return { model: '—', serial: '—', iface: '—' };
-  }
-  return { model: '—', serial: '—', iface: '—' };
+if (process.env.ARCHIVO_TEST_MODE) app.__archivoTestService = service;
+ipcMain.handle('volumes:list', () => service.jobs.run('list'));
+ipcMain.handle('volumes:info', async (_, root) => { const s = await service.jobs.run('identify', { root }); return { model:s.model,serial:s.serial,iface:s.iface }; });
+ipcMain.handle('volumes:cancel-scan', () => { service.cancel(); return true; });
+ipcMain.handle('volumes:scan', (_, root) => service.scan(root));
+ipcMain.handle('fork:context', (_, data) => service.context(data));
+ipcMain.handle('fork:status', () => ({ ...service.status(), sources: service.sourceStatus(), login: app.getLoginItemSettings().openAtLogin }));
+ipcMain.handle('fork:link-scan', (_, diskId, token) => service.linkScanned(diskId, token));
+ipcMain.handle('fork:resolve', (_, diskId) => service.resolve(diskId));
+ipcMain.handle('fork:scan-bound', (_, diskId) => service.scan(null, service.binding(currentPath, diskId)));
+ipcMain.handle('fork:locate', async (_, diskId) => {
+  requireIdle();
+  const choice = await dialog.showOpenDialog(mainWindow, { title: 'Locate source — select its drive or folder', properties: ['openDirectory'] });
+  if (choice.canceled || !choice.filePaths.length) return null;
+  const answer = await dialog.showMessageBox(mainWindow, { type: 'question', buttons: ['Cancel', 'Link this source'], defaultId: 0, cancelId: 0,
+    message: 'Link this folder to the selected catalog disk?', detail: choice.filePaths[0] + '\nFuture rescans will replace this catalog disk’s file list with the contents of this folder.' });
+  if (answer.response !== 1) return null;
+  return service.bind(diskId, choice.filePaths[0]);
 });
-
-// ─────────────────────────────────────────────────────────────
-// SCAN — the walk itself lives in scanner.js
-// One scan at a time: a second request is refused instead of sharing the
-// cancel flag with the first (which let two scans cancel each other and mix
-// their results).
-// ─────────────────────────────────────────────────────────────
-let activeScan = null;   // { cancelled:boolean } while a scan runs
-
-ipcMain.handle('volumes:cancel-scan', () => { if (activeScan) activeScan.cancelled = true; return true; });
-
-ipcMain.handle('volumes:scan', async (event, mountPoint) => {
-  if (activeScan) throw new Error('A scan is already running.');
-  if (typeof mountPoint !== 'string' || !fs.existsSync(mountPoint)) throw new Error(`Path not found: ${mountPoint}`);
-  const job = { cancelled: false };
-  activeScan = job;
-  const send = (payload) => {
-    if (event.sender && !event.sender.isDestroyed()) event.sender.send('scan:progress', payload);
-  };
-  try {
-    return await scanVolume(mountPoint, { send, isCancelled: () => job.cancelled });
-  } finally {
-    if (activeScan === job) activeScan = null;
-  }
+ipcMain.handle('fork:pick-source', async () => {
+  requireIdle();
+  const choice = await dialog.showOpenDialog(mainWindow, { title: 'Add a drive, server share, or folder', properties: ['openDirectory'] });
+  if (choice.canceled || !choice.filePaths.length) return null;
+  const source = await service.jobs.run('identify', { root: choice.filePaths[0] });
+  return { ...source, name: path.basename(source.root) || source.name, mount_point: source.root };
 });
+ipcMain.handle('fork:reveal', async (_, diskId, segments) => { const r = await service.reveal(diskId, segments); shell.showItemInFolder(r.file); return true; });
+ipcMain.handle('fork:schedule-save', (_, input) => service.addSchedule(input));
+ipcMain.handle('fork:schedule-action', (_, id, action) => service.scheduleAction(id, action));
+ipcMain.handle('fork:schedule-run', (_, id) => service.runSchedule(id));
+ipcMain.handle('fork:pause', (_, on) => { service.settings.paused = !!on; service.save(); return true; });
+ipcMain.handle('fork:login', (_, on) => { if (!app.isPackaged) throw Error('Launch at login is available in the installed app.'); app.setLoginItemSettings({ openAtLogin: !!on, args: ['--background'] }); return app.getLoginItemSettings().openAtLogin; });
+ipcMain.handle('fork:cancel', () => { service.cancel(); return true; });
+ipcMain.handle('fork:duplicates', (_, ids, verify) => service.duplicates(ids, verify === true));
+ipcMain.handle('fork:trash', (_, reportId, ids) => service.trashCopies(reportId, ids));
+ipcMain.handle('fork:backups', async () => { if (!currentPath) throw Error('Save a catalog first.'); const directory = currentPath + '.backups'; await fs.promises.mkdir(directory, { recursive: true }); return shell.openPath(directory); });
 
+// ─────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────
 // EXPORT — CSV (plain text) and standalone HTML viewer (gzip-embedded)
 // ─────────────────────────────────────────────────────────────
@@ -755,7 +585,7 @@ function buildMenu() {
     {
       role: 'help',
       submenu: [
-        { label: 'archivo on GitHub', click: () => shell.openExternal(REPO_URL) },
+        { label: 'Archivo Fork on GitHub', click: () => shell.openExternal(REPO_URL) },
         { label: 'Report an Issue',   click: () => shell.openExternal(REPO_URL + '/issues') },
         ...(isMac ? [] : [
           { type: 'separator' },
@@ -770,4 +600,4 @@ function buildMenu() {
 }
 
 // For the test suite only (test/smoke.js): the app itself never imports main.js.
-module.exports = { safeReleaseUrl };
+module.exports = { safeReleaseUrl, getService: () => service };

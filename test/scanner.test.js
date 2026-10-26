@@ -21,9 +21,9 @@ const check = (name, ok, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + na
   fs.writeFileSync(path.join(root, 'DAY01', 'A002.mxf'), 'x'.repeat(50));
   fs.mkdirSync(path.join(root, 'LOCKED'));
   fs.writeFileSync(path.join(root, 'LOCKED', 'secret.mov'), 'x');
-  fs.symlinkSync(root, path.join(root, 'loop'));
+  fs.symlinkSync(root, path.join(root, 'loop'), process.platform === 'win32' ? 'junction' : 'dir');
   fs.chmodSync(path.join(root, 'LOCKED'), 0o000);
-  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+  const asRoot = process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0);
 
   try {
     const events = [];

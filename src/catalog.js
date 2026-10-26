@@ -48,6 +48,7 @@ function name(v) {
 function cleanNode(n) {
   const isDir = n.type === 'dir';
   const out = { type: isDir ? 'dir' : 'file', name: name(n.name), size: size(n.size), modified: text(n.modified, 32) };
+  if (typeof n.mtime_ms === 'number' && Number.isFinite(n.mtime_ms) && n.mtime_ms >= 0) out.mtime_ms = n.mtime_ms;
   if (isDir) out.children = [];
   return out;
 }

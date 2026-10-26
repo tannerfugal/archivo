@@ -335,7 +335,7 @@ function wireButtons() {
   g('btn-close').addEventListener('click',      () => closeDatabase());
 
   // Footer: GitHub link + About modal
-  const REPO_URL = 'https://github.com/noar-justedit/archivo';
+  const REPO_URL = 'https://github.com/tannerfugal/archivo';
   g('sb-github').addEventListener('click', () => { try { window.archivo.openExternal(REPO_URL); } catch(e){} });
   g('sb-about').addEventListener('click', openAbout);
   g('about-close').addEventListener('click', () => g('about-ov').classList.remove('open'));
@@ -345,6 +345,9 @@ function wireButtons() {
   ['sb-github','sb-about','about-repo','about-license'].forEach(id => keyActivate(g(id), () => g(id).click()));
 
   // Export (CSV / HTML)
+  g('btn-pick-source').addEventListener('click', async () => {
+    try { const vol = await window.archivo.pickSource(); if (vol) { await showAddDisk(); selectVol(vol); } } catch (e) { toast(e.message, 'err'); }
+  });
   g('btn-export-data').addEventListener('click', () => openExport());
   g('exp-cancel').addEventListener('click', () => g('exp-ov').classList.remove('open'));
   g('exp-ov').addEventListener('click', e => { if (e.target === g('exp-ov')) g('exp-ov').classList.remove('open'); });
@@ -653,6 +656,7 @@ function updateTitleBar() {
 }
 
 function markDirty() {
+  if (window.archivo?.context) window.archivo.context(DB).catch(() => {});
   if (!dirty) { dirty = true; try { window.archivo.setDirty(true); } catch (e) {} }
   updateTitleBar();
 }
@@ -746,6 +750,7 @@ function closeDatabase() {
    REFRESH
 ════════════════════════════════════════════════ */
 function refreshAll() {
+  if (typeof forkRefresh === 'function') forkRefresh();
   renderTree();
   updateSB();
   updateInsp();
@@ -1299,7 +1304,7 @@ async function confirmAddDisk() {
   if (res.cancelled) { toast('Scan cancelled.', 'info'); return; }
 
   const scanData = {
-    label, note, total, free,
+    label, note, total, free, sourceToken: res.sourceToken, vol_type: res.source?.vol_type,
     model:      hw.model,
     serial:     hw.serial,
     iface:      vol.file_system || '',
@@ -1308,8 +1313,10 @@ async function confirmAddDisk() {
     skipped:    skippedOf(res),
   };
 
-  // ── Duplicate detection: match by serial (if present) else by label ──
-  const existing = findExistingDisk(scanData.serial, scanData.label);
+  if (!await reviewIncomplete(res)) return;
+  const status = await window.archivo.toolsStatus();
+  const match = status.sources.find(s => s.binding && s.binding.key === res.source.key && s.binding.relative === res.source.relative);
+  const existing = match ? DB.disks.find(d => d.id === match.id) : null;
   if (existing) {
     const bySerial = scanData.serial && realSerial(existing.serial) === scanData.serial;
     showModal('Disk already in catalog',
@@ -1341,7 +1348,7 @@ function findExistingDisk(serial, label) {
                             !(s && realSerial(d.serial))) || null;
 }
 
-function commitNewDisk(scanData) {
+async function commitNewDisk(scanData) {
   const disk = {
     id:         'disk_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     label:      scanData.label,
@@ -1356,6 +1363,8 @@ function commitNewDisk(scanData) {
     tree:       scanData.tree,
   };
   if (scanData.skipped) disk.skipped = scanData.skipped;
+  if (scanData.vol_type) disk.vol_type = scanData.vol_type;
+  if (scanData.sourceToken) await window.archivo.linkScan(disk.id, scanData.sourceToken);
   DB.disks.push(disk);
   markDirty();
   hideAddDisk();
@@ -1365,7 +1374,8 @@ function commitNewDisk(scanData) {
   doneToast('added', disk.label, disk.file_count, scanData.skipped);
 }
 
-function commitUpdateDisk(existing, scanData) {
+async function commitUpdateDisk(existing, scanData) {
+  if (scanData.sourceToken) await window.archivo.linkScan(existing.id, scanData.sourceToken);
   // Keep the same id (preserves selection/expansion history). Keep the
   // existing note unless the user typed a new one in the Add Disk form.
   existing.label      = scanData.label;
@@ -1398,31 +1408,20 @@ async function ctxUpdate() {
   await tryUpdateArchivedDisk(disk);
 }
 
-// Look for a mounted volume whose name/label matches the archived disk (by name only).
+// Local, explicitly trusted source bindings are resolved by the backend.
 async function findMountedVolumeFor(disk) {
-  let vols = [];
-  try { vols = await window.archivo.listVolumes(); } catch { vols = []; }
-  const target = (disk.label || '').trim().toLowerCase();
-  if (!target) return null;
-  return vols.find(v =>
-    (v.name || '').trim().toLowerCase() === target ||
-    (v.mount_point || '').split(/[\\/]/).filter(Boolean).pop()?.toLowerCase() === target
-  ) || null;
+  try { const source = await window.archivo.resolveSource(disk.id); return { ...source, mount_point:source.root }; }
+  catch (e) { toast(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), 'warn'); return null; }
 }
 
 async function tryUpdateArchivedDisk(disk) {
   if (busy()) return;
   const vol = await findMountedVolumeFor(disk);
   if (!vol) {
-    // Volume not mounted → ask the user to connect it, offer Retry.
-    showModal('Volume not mounted',
-      'To update <strong>' + esc(disk.label) + '</strong>, connect and mount the drive named ' +
-      '<strong>' + esc(disk.label) + '</strong>, then click Retry.<br><br>' +
-      '<span style="color:var(--dm);font-size:12px;">archivo matches the mounted volume by name.</span>',
-      [
-        { label:'Cancel', cls:'btn-g', fn:hideModal },
-        { label:'Retry',  cls:'btn-p', fn:async()=>{ hideModal(); await tryUpdateArchivedDisk(disk); } },
-      ]);
+    showModal('Locate source', 'Link the drive or folder for <strong>' + esc(disk.label) + '</strong> on this computer. Labels alone are not used to identify drives.', [
+      { label:'Cancel', cls:'btn-g', fn:hideModal },
+      { label:'Locate source…', cls:'btn-p', fn:async()=>{ hideModal(); await window.archivo.context(DB); const linked = await window.archivo.locateSource(disk.id); if (linked) await tryUpdateArchivedDisk(disk); } },
+    ]);
     return;
   }
   runUpdateScan(disk, vol);
@@ -1443,7 +1442,7 @@ async function runUpdateScan(disk, vol) {
   setScanning(true);
   let res;
   try {
-    res = await window.archivo.scanVolume(vol.mount_point);
+    res = await window.archivo.scanBound(disk.id);
   } catch (e) {
     setScanning(false);
     hideAddDisk();
@@ -1455,7 +1454,9 @@ async function runUpdateScan(disk, vol) {
   // The disk may have been removed from the catalog meanwhile (it cannot:
   // removing is locked during a scan — but never write into a ghost).
   if (!DB.disks.includes(disk)) { hideAddDisk(); return; }
-  commitUpdateDisk(disk, {
+  if (!await reviewIncomplete(res)) { hideAddDisk(); return; }
+  await commitUpdateDisk(disk, {
+    sourceToken: res.sourceToken,
     label:      disk.label,
     model:      disk.model,
     serial:     disk.serial,
@@ -1758,15 +1759,10 @@ function joinOnVolume(mount, segs) {
 async function ctxReveal() {
   const t = ctxTarget; if (!t) return;
   const disk = DB.disks.find(d => d.id === t.diskId); if (!disk) return;
-  const vol = await findMountedVolumeFor(disk);
-  if (!vol) { toast('Connect "' + disk.label + '" to reveal it in ' + fileManager() + '.', 'info'); return; }
   const segs = t.type === 'node' ? t.key.split('/').slice(1) : [];
-  const p = joinOnVolume(vol.mount_point, segs);
-  let ok = false;
-  if (p) { try { ok = await window.archivo.revealInFinder(p); } catch (e) { ok = false; } }
-  if (!ok) toast(segs.length
-    ? 'Not found on "' + disk.label + '" — it may have been moved or deleted since the scan.'
-    : 'Could not reveal "' + disk.label + '".', 'err');
+  try { await window.archivo.revealSource(disk.id, segs); }
+  catch (e) { toast('Connect or locate the source first. ' + e.message, 'warn'); }
+
 }
 
 /* ════════════════════════════════════════════════
@@ -1777,6 +1773,7 @@ async function ctxReveal() {
    disk into the other catalog).
 ════════════════════════════════════════════════ */
 function busy() {
+  if (typeof forkBusy !== 'undefined' && forkBusy) { toast('A background job is running — wait or cancel it.', 'warn'); return true; }
   if (!scanning) return false;
   toast('A scan is running — wait for it to finish, or cancel it.', 'warn');
   return true;
@@ -1784,14 +1781,16 @@ function busy() {
 
 let lastUiSig = '';
 function updateUiState() {
+  const locked = scanning || (typeof forkBusy !== 'undefined' && !!forkBusy);
   const open = docOpen, n = DB.disks.length;
   const set = (id, on) => { const b = g(id); if (b) b.disabled = !on; };
-  set('btn-add-disk',    open && !scanning);
-  set('btn-import',      !scanning);
-  set('btn-export',      open);
-  set('btn-close',       open && !scanning);
+  set('btn-pick-source', open && !locked);
+  set('btn-add-disk',    open && !locked);
+  set('btn-import',      !locked);
+  set('btn-export',      open && !locked);
+  set('btn-close',       open && !locked);
   set('btn-export-data', open && n > 0);
-  set('btn-delete',      open && !scanning && !!selected && selected.type === 'disk');
+  set('btn-delete',      open && !locked && !!selected && selected.type === 'disk');
   set('btn-inspector',   open);
   const sig = open + '|' + n + '|' + scanning;
   if (sig !== lastUiSig) {

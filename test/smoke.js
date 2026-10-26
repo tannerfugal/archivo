@@ -33,6 +33,8 @@ if (!fs.existsSync(CATALOG)) {
   process.argv.push(CATALOG);
 }
 
+process.env.ARCHIVO_TEST_MODE = '1';
+process.env.ARCHIVO_TEST_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'archivo-app-test-'));
 const MAIN = require('../src/main.js');
 const { app, BrowserWindow, Menu } = require('electron');
 const results = [];
@@ -212,8 +214,8 @@ app.whenReady().then(async () => {
     check('sécu: absurdly deep tree capped, no crash', depth < MAX_DEPTH, depth);
     check('sécu: "/" inside a name neutralised', sanitizeCatalog({ disks: [{ id: 'x', label: 'L', tree: [{ type: 'file', name: 'a/b' }] }] }).disks[0].tree[0].name === 'a∕b');
     check('sécu: update link limited to the archivo repo',
-          MAIN.safeReleaseUrl('https://evil.example/archivo') === 'https://github.com/noar-justedit/archivo/releases' &&
-          MAIN.safeReleaseUrl('https://github.com/noar-justedit/archivo/releases/tag/v9.9.9').includes('/v9.9.9'));
+          MAIN.safeReleaseUrl('https://evil.example/archivo') === 'https://github.com/tannerfugal/archivo/releases' &&
+          MAIN.safeReleaseUrl('https://github.com/tannerfugal/archivo/releases/tag/v9.9.9').includes('/v9.9.9'));
     // CSV formula injection
     check('sécu: CSV neutralises formulas', await js(`csvField('=1+1') === "'=1+1" && csvField('@x') === "'@x" && csvField(12) === '12' && csvField('RUSHES') === 'RUSHES'`));
     // HTML export: payload with a closing script tag stays data
@@ -328,7 +330,7 @@ app.whenReady().then(async () => {
     check('ui: Delete greyed when no disk is selected', await js(`(() => { selected = null; updateSB(); return g('btn-delete').disabled; })()`));
     check('ui: (A) badges have a tooltip and use the charter green', await js(`[...document.querySelectorAll('.auto-ic')].every(s => s.querySelector('title') && getComputedStyle(s).color === 'rgb(53, 201, 139)') && document.querySelectorAll('.auto-ic').length === 4`));
     check('ui: "Update existing" is orange', await js(`(() => { const b = g('btn-confirm-add'); b.classList.add('is-update'); const c = getComputedStyle(b).color; b.classList.remove('is-update'); return c === 'rgb(242, 160, 61)'; })()`));
-    check('ui: Reveal path cannot leave the volume', await js(`joinOnVolume('/Volumes/ONE', ['..', 'etc']) === null && joinOnVolume('/Volumes/ONE', ['D', 'f.mov']) === '/Volumes/ONE/D/f.mov'`));
+    check('ui: Reveal path cannot leave the volume', await js(`joinOnVolume('/Volumes/ONE', ['..', 'etc']) === null && joinOnVolume('/Volumes/ONE', ['D', 'f.mov']) === (isWin() ? '/Volumes/ONE' + String.fromCharCode(92) + 'D' + String.fromCharCode(92) + 'f.mov' : '/Volumes/ONE/D/f.mov')`));
     check('ui: minimum window width 1100', win.getMinimumSize()[0] === 1100, win.getMinimumSize()[0]);
     win.setSize(1100, 700); await wait(400);
     const cols = await js(`(() => { const cat = g('cat').getBoundingClientRect(); const nt = document.querySelector('.ch-nt').getBoundingClientRect();

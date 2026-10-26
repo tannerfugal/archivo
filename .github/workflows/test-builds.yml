@@ -1,0 +1,44 @@
+name: Test builds
+on:
+  push:
+    branches: [feature/storage-tools, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test-and-package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - run: npm test
+      - run: npm run test:features
+      - name: Package unsigned Windows x64 test builds
+        if: runner.os == 'Windows'
+        run: npm run build:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Package unsigned Mac ARM64 CI test builds
+        if: runner.os == 'macOS'
+        run: npm run build:mac:test
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Upload installable builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: archivo-fork-${{ runner.os }}-1.5.0-beta.1
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 30
+          if-no-files-found: error

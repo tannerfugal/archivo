@@ -1,7 +1,7 @@
 {
-  "name": "archivo",
-  "version": "1.4.0",
-  "description": "Hard Disk Catalog",
+  "name": "archivo-fork",
+  "version": "1.5.0-beta.1",
+  "description": "Offline catalogs, scheduled rescans, storage maps and verified duplicates",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
@@ -9,29 +9,19 @@
     "test:scanner": "node test/scanner.test.js",
     "build:mac": "electron-builder --mac --arm64",
     "build:mac-universal": "electron-builder --mac --universal",
-    "build:win": "electron-builder --win --x64"
+    "build:win": "electron-builder --win --x64",
+    "test:unit": "node --test test/*.test.js",
+    "test:features": "node test/features.js",
+    "build:mac:test": "electron-builder --mac --arm64"
   },
   "build": {
-    "appId": "com.justedit.archivo",
-    "productName": "archivo",
-    "copyright": "Copyright © 2026 just edit",
-    "fileAssociations": [
-      {
-        "ext": "archivo",
-        "name": "archivo Catalog",
-        "description": "archivo disk catalog",
-        "role": "Editor",
-        "rank": "Owner",
-        "mimeType": "application/x-archivo-catalog"
-      }
-    ],
+    "appId": "com.tannerfugal.archivofork",
+    "productName": "Archivo Fork",
+    "copyright": "Copyright \u00a9 2026 just edit",
     "files": [
       "src/**/*",
-      "src/fonts/**/*",
-      "src/assets/**/*",
       "build/icon.icns",
-      "build/icon.ico",
-      "node_modules/**/*"
+      "build/icon.ico"
     ],
     "directories": {
       "output": "dist"
@@ -57,7 +47,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": true,
+      "notarize": false,
       "extendInfo": {
         "NSRemovableVolumesUsageDescription": "archivo needs access to your external drives to catalog what is on them.",
         "NSNetworkVolumesUsageDescription": "archivo needs access to network volumes to catalog what is on them.",
@@ -72,7 +62,7 @@
       }
     },
     "dmg": {
-      "title": "archivo 1.4.0",
+      "title": "Archivo Fork 1.5.0 beta 1",
       "icon": null,
       "internetEnabled": false,
       "writeUpdateInfo": false,
@@ -113,7 +103,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "archivo",
+      "shortcutName": "Archivo Fork",
       "license": "LICENSE.txt"
     },
     "extraResources": [
@@ -124,10 +114,14 @@
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "electron": "^43.0.0",
     "electron-builder": "^26.0.0"
   },
-  "dependencies": {},
   "author": "just edit",
-  "license": "GPL-3.0-or-later"
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tannerfugal/archivo.git"
+  }
 }

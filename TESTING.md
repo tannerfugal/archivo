@@ -1,0 +1,69 @@
+# Archivo Fork 1.5.0 beta 1 — test guide
+
+This fork adds background rescans, an offline storage map, and content-verified duplicate finding to archivo v1.4.0. Original archivo is © 2026 just edit; fork additions are GPL-3.0-or-later.
+
+## Install
+
+- **Apple Silicon Mac:** open the DMG and drag **Archivo Fork** to Applications. Alternatively extract the app ZIP. This local build uses Tanner Fugal’s Developer ID signature. It is **not notarized**: existing notarization credentials were unavailable. macOS may require Open Anyway in System Settings → Privacy & Security after the first attempt to open it.
+- **Windows x64:** run the setup EXE, or use the portable EXE without installing. These test builds are **unsigned**, so Windows may show a publisher/SmartScreen prompt. Use only the files from this fork’s build artifacts.
+- Upstream Archivo can remain installed. The fork uses a separate application identity and preferences directory. It does not change the default `.archivo` file association. Open catalogs from inside the fork.
+- Downloadable CI artifacts are under https://github.com/tannerfugal/archivo/actions. They expire after 30 days. No public release is published by the workflow.
+
+## First run
+
+1. Open a **copy** of an existing `.archivo` catalog, or create a new one.
+2. Use **Add disk** for mounted drives, or **Add folder / server** for a folder, a mounted Mac share, a mapped Windows drive, or an accessible network folder. Sign in through Finder or Explorer first.
+3. Existing catalog entries need a local source link. Select the disk and use **Locate source…**, or link it from **Schedules**. Select the exact folder that represents the root of that catalog entry; linking the wrong folder would change what a future rescan indexes.
+4. Save the catalog. Source links and schedules belong to this computer, so link sources separately on the PC.
+
+## Schedules
+
+- Open **Schedules** and link each desired source. Choose the source checkboxes, a daily time, selected weekdays, or an interval of 15 minutes–7 days.
+- Schedules start disabled. Check **Enable this schedule** and create it when ready. Use **Run now** for an immediate test.
+- Close the window: Archivo Fork continues in the Mac menu bar or Windows system tray. Use its menu to reopen, pause schedules, run due scans, or quit. Explicit **Quit** stops scheduling. Launch at login is optional and off initially; it is available in the installed application.
+- Multiple saved catalogs can have schedules. Unsaved edits defer the affected catalog until saved. Offline sources and scans with read errors retain their previous entries. Reconnect sources and use Run now to retry.
+- After sleep or relaunch, one overdue run is performed per schedule. Daily and weekday times follow this computer’s current time zone. A nonexistent spring-forward time runs at the next valid local time; fall-back does not run a daily schedule twice.
+- Completed updates save automatically. The five previous catalog versions live in `your-catalog.archivo.backups` beside the catalog. **Show catalog backups** opens that folder; open a backup as a catalog and use Save As to restore a separate copy.
+- This version uses already connected OS shares. It does not store server passwords, mount disconnected shares, wake a sleeping computer, or run after quitting.
+
+## Storage Map
+
+- Open **Storage Map**, select tiles to inspect them, and double-click folders to drill down. Use breadcrumbs to go back.
+- The companion list sorts by size or name and shows the first 100 items at the current level. A map level with over 300 entries groups smaller entries into an explorable Other tile.
+- Reveal works when the disk is connected and locally linked. Show in catalog returns to its tree location.
+- Map totals are the catalog’s indexed **logical bytes**, not allocated filesystem space. Scan date, drive capacity, and free space are shown separately. Approximate or missing imported sizes are labeled; rescan to obtain exact file sizes.
+- The scanner retains upstream exclusions for dot-prefixed items, known OS/cache folders, and symbolic links. Nested mounted volumes should be cataloged as separate sources. A scheduled catalog excludes itself, its backups, and the application’s settings folder from its own scan.
+
+## Duplicates
+
+1. Choose disks and **Find possible copies** for an offline comparison. Exact matching sizes are candidates even when filenames differ; approximate imported sizes and empty files are excluded.
+2. Connect and link the sources, then **Verify contents**. Sampled reads narrow candidates; full SHA-256 reads establish matching content. Large media files can take time. Cancel is available in the job bar.
+3. Results identify content groups and distinguish Possible, Verified, Offline, Changed, Unreadable, Different, and Same file (hard links). The result list is paginated. Export CSV records all results.
+4. Nothing is selected automatically. To test cleanup, use disposable copies first. Select verified copies, leave at least one copy per content group, and choose **Move selected copies to Trash**. A confirmation is required; contents and source identities are checked again before moving anything.
+5. Network files are inspection-only in this beta. If the OS cannot recycle a local file, it stays in place. There is no permanent-delete fallback. The surviving copy must still be connected and verified. File changes or disconnections stop cleanup.
+6. Successful cleanup updates the open catalog and marks it edited; save to retain the updated file list. Restore recycled files through Finder’s Trash or Windows Recycle Bin, then rescan.
+
+## Acceptance checks on your hardware
+
+- Scan and rescan a USB disk, then disconnect it and confirm its offline catalog remains searchable.
+- Reconnect with a changed Windows drive letter; confirm the correct linked volume is found. Test two drives with the same label and partitions on the same physical disk.
+- Link a server folder, run a schedule, add a test file on the server, and run again. Disconnect the share and confirm the saved tree is preserved.
+- Test a denied folder and unplug a test drive mid-scan: the previous scheduled entry must remain, with an activity entry explaining the incomplete run.
+- Close the window and wait for a short interval schedule. Test sleep/wake and optional launch at login. Tray/menu-bar availability and login behavior require physical OS testing.
+- Use small, disposable duplicate files, including differently named copies and same-size different contents. Confirm only matching contents become Verified, one copy is retained, and Trash restoration works.
+- Report the platform, steps, expected/actual outcome, and the relevant Schedules activity text. Do not send credentials or private catalog contents.
+
+## Development and reproducibility
+
+```sh
+npm ci
+npm run test:unit
+npm test
+npm run test:features
+npm run build:mac:test   # Mac ARM64 DMG + ZIP
+npm run build:win        # Windows x64 installer + portable
+```
+
+Node.js 22 or newer is required. UI integration uses Playwright’s Electron driver because a Browser plugin is not installed. The tests create disposable temporary catalogs and files, including an OS Trash test for one generated duplicate. No user drives are scanned by tests. Local Mac signing is discovered from Keychain; CI disables certificate discovery and produces unsigned packages. The product’s updater is disabled for these beta builds.
+
+Validation distinguishes automated synthetic fixtures from physical USB/server testing. Passing CI does not establish performance on your full media archive, long-running reliability, network reconnection behavior, or distribution trust prompts.
