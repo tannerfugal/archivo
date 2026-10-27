@@ -20,9 +20,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: npm run check
       - run: npm run test:unit
       - run: npm test
       - run: npm run test:features
+      - run: npm run test:polish
       - run: npm run test:background
       - name: Package unsigned Windows x64 test builds
         if: runner.os == 'Windows'
@@ -41,6 +43,8 @@ jobs:
           $env:ARCHIVO_APP_EXECUTABLE = Join-Path $PWD 'dist\win-unpacked\Archivo Fork.exe'
           npm run test:features
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:polish
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:background
           exit $LASTEXITCODE
       - name: Verify packaged Mac application
@@ -48,6 +52,7 @@ jobs:
         run: |
           export ARCHIVO_APP_EXECUTABLE="$PWD/dist/mac-arm64/Archivo Fork.app/Contents/MacOS/Archivo Fork"
           npm run test:features
+          npm run test:polish
           npm run test:background
       - name: Upload installable builds
         uses: actions/upload-artifact@v4

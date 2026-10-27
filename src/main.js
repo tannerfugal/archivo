@@ -438,7 +438,7 @@ ipcMain.handle('fork:locate', async (_, diskId) => {
   const choice = await dialog.showOpenDialog(mainWindow, { title: 'Locate source — select its drive or folder', properties: ['openDirectory'] });
   if (choice.canceled || !choice.filePaths.length) return null;
   const answer = await dialog.showMessageBox(mainWindow, { type: 'question', buttons: ['Cancel', 'Link this source'], defaultId: 0, cancelId: 0,
-    message: 'Link this folder to the selected catalog disk?', detail: choice.filePaths[0] + '\nFuture rescans will replace this catalog disk’s file list with the contents of this folder.' });
+    message: 'Link this folder to “' + (service.live.disks.find(d=>d.id===diskId)?.label || 'selected catalog disk') + '”?', detail: choice.filePaths[0] + '\nFuture rescans will replace this catalog disk’s file list with the contents of this folder.' });
   if (answer.response !== 1) return null;
   return service.bind(diskId, choice.filePaths[0]);
 });

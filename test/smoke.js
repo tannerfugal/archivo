@@ -306,6 +306,9 @@ app.whenReady().then(async () => {
       { id:'k2', label:'TWO', total:'1 TB', free:'0,5 TB', tree:[] } ] };
       expanded.clear(); selected = null; refreshAll(); g('tree-scroll').scrollTop = 0; true`);
     const key = (k, extra) => js(`g('tree-scroll').dispatchEvent(new KeyboardEvent('keydown', Object.assign({ key: ${JSON.stringify(k)}, bubbles: true }, ${JSON.stringify(extra || {})}))); true`);
+    // The hidden HTML-export test can leave the native web view unfocused on macOS.
+    // DOM focus events require the view itself to own focus before keyboard checks.
+    win.focus(); win.webContents.focus(); await wait(50);
     await js(`g('search-inp').focus(); g('tree-scroll').focus(); true`);
     check('clavier: the tree takes the focus and selects the first row', await js(`document.activeElement === g('tree-scroll') && selected && selected.disk.id === 'k1'`));
     await key('ArrowRight'); await key('ArrowDown');

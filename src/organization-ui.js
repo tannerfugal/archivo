@@ -7,9 +7,9 @@ function groupSelect(kind,value='',placeholder='Unassigned'){
  const select=fe('select','ft-select');const first=fe('option','',placeholder);first.value='';select.append(first);
  for(const n of [...ensureOrganization()[kind]].sort((a,b)=>ArchivoOrganization.path(DB.organization,kind,a.id).localeCompare(ArchivoOrganization.path(DB.organization,kind,b.id)))){const o=fe('option','',ArchivoOrganization.path(DB.organization,kind,n.id));o.value=n.id;select.append(o);}select.value=value||'';return select;
 }
-function scopeChanged(){forkMapStack=[];forkMapSelected=null;forkDuplicateReport=null;forkDuplicateSelections.clear();renderOrganization();renderTree();if(selected&&!scopedDisks().includes(selected.disk)){selected=null;updateInsp();}if(forkView==='map')renderStorageMap();if(forkView==='duplicates')renderDuplicates();if(g('srch-panel').classList.contains('on'))execSearch(g('search-inp').value);}
+function scopeChanged(){forkMapStack=[];forkMapSelected=null;forkDuplicateReport=null;forkDuplicateDriveIds=null;forkDuplicateSelections.clear();renderOrganization();renderTree();if(selected&&!scopedDisks().includes(selected.disk)){selected=null;updateInsp();}if(forkView==='map')renderStorageMap();if(forkView==='duplicates')renderDuplicates();if(g('srch-panel').classList.contains('on'))execSearch(g('search-inp').value);}
 function renderOrganization(){
- const side=g('organization-sidebar');if(!side)return;side.replaceChildren();side.hidden=!docOpen||forkView==='schedules';if(!docOpen)return;const org=ensureOrganization();
+ const side=g('organization-sidebar');if(!side)return;side.replaceChildren();side.hidden=!docOpen||forkView==='schedules';const chips=g('scope-chips');chips.replaceChildren();chips.hidden=forkView==='schedules';if(!docOpen)return;const org=ensureOrganization();
  for(const [kind,title,scope] of [['categories','Category',categoryScope],['locations','Physical location',locationScope]]){
   if(scope&&scope!=='unassigned'&&!org[kind].some(n=>n.id===scope)){if(kind==='categories')categoryScope='';else locationScope='';}
   const head=fe('div','org-heading');head.append(fe('h2','',title),fb('Edit',()=>manageGroups(kind)));side.append(head);
@@ -19,7 +19,7 @@ function renderOrganization(){
   function add(parent,depth){for(const n of org[kind].filter(n=>n.parent===parent)){side.append(button(n.name,n.id,depth));add(n.id,depth+1);}}add(null,0);
  }
  side.append(fb('Organize drives…',organizeDrives),fe('p','ft-muted','Organization only labels catalog entries. Physical files stay where they are.'));
- const chips=g('scope-chips');chips.replaceChildren();for(const [kind,id,label]of [['categories',categoryScope,'Category'],['locations',locationScope,'Location']])if(id)chips.append(fe('span','ft-badge',label+': '+(id==='unassigned'?'Unassigned':ArchivoOrganization.path(org,kind,id))));if(categoryScope||locationScope)chips.append(fb('Reset scope',()=>{categoryScope='';locationScope='';scopeChanged();}));
+ for(const [kind,id,label]of [['categories',categoryScope,'Category'],['locations',locationScope,'Location']])if(id)chips.append(fb(label+': '+(id==='unassigned'?'Unassigned':ArchivoOrganization.path(org,kind,id))+' ×',()=>{if(kind==='categories')categoryScope='';else locationScope='';scopeChanged();},'scope-chip'));if(categoryScope||locationScope)chips.append(fb('Reset scope',()=>{categoryScope='';locationScope='';scopeChanged();}));
 }
 function commitOrganization(){markDirty();refreshAll();scopeChanged();}
 function inspectorOrganization(d){const box=fe('div','is');box.append(fe('div','ist','Organization'));for(const[kind,label,field]of [['categories','Category','categoryId'],['locations','Physical location','locationId']]){const wrap=fe('label','org-field',label),select=groupSelect(kind,d[field]);select.setAttribute('aria-label',label+' for '+d.label);select.onchange=()=>{if(select.value)d[field]=select.value;else delete d[field];commitOrganization();};wrap.append(select);box.append(wrap);}g('ib').append(box);}
@@ -32,8 +32,10 @@ function manageGroups(kind){
 }
 function organizeDrives(){
  if(!docOpen||busy())return;showModal('Organize drives','<div id="organize-drives"></div>',[{label:'Cancel',cls:'btn-g',fn:hideModal}]);
- const host=g('organize-drives'),choices=fe('div','org-drive-choices');for(const d of DB.disks)choices.append(fcheck(d.label,d.id,selected?.disk===d));host.append(choices);
+ const host=g('organize-drives'),choices=createDrivePicker({ids:selected?[selected.disk.id]:[],label:'Drives to organize',open:true});host.append(choices);
  const cat=groupSelect('categories','','Unassigned'),loc=groupSelect('locations','','Unassigned'),useCat=fcheck('Set category','category',true),useLoc=fcheck('Set physical location','location',false);
- host.append(useCat,cat,useLoc,loc,fb('Apply to selected drives',()=>{const ids=new Set([...choices.querySelectorAll('input:checked')].map(i=>i.value));if(!ids.size)throw Error('Select at least one drive.');for(const d of DB.disks.filter(d=>ids.has(d.id)))for(const[use,select,key]of[[useCat,cat,'categoryId'],[useLoc,loc,'locationId']])if(use.querySelector('input').checked){if(select.value)d[key]=select.value;else delete d[key];}hideModal();commitOrganization();},'ft-primary'));
+ cat.setAttribute('aria-label','Assign category');loc.setAttribute('aria-label','Assign physical location');
+ const apply=fb('Apply to selected drives',()=>{const ids=new Set(choices.selectedIds());if(!ids.size)throw Error('Select at least one drive.');if(!useCat.querySelector('input').checked&&!useLoc.querySelector('input').checked)throw Error('Choose which labels to set.');for(const d of DB.disks.filter(d=>ids.has(d.id)))for(const[use,select,key]of[[useCat,cat,'categoryId'],[useLoc,loc,'locationId']])if(use.querySelector('input').checked){if(select.value)d[key]=select.value;else delete d[key];}hideModal();commitOrganization();toast(ids.size+' drives organized.','ok');},'ft-primary');
+ const update=()=>{cat.disabled=!useCat.querySelector('input').checked;loc.disabled=!useLoc.querySelector('input').checked;};useCat.querySelector('input').onchange=update;useLoc.querySelector('input').onchange=update;update();host.append(useCat,cat,useLoc,loc,apply);
 }
 renderOrganization();

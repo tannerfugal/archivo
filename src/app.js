@@ -413,7 +413,7 @@ function wireSearch() {
   // Prevent ctx-close listener from swallowing search zone clicks
   zone.addEventListener('click',     e => e.stopPropagation());
   zone.addEventListener('mousedown', e => e.stopPropagation());
-  inp.addEventListener('input',   e => onSearch(e.target.value));
+  inp.addEventListener('input', e => {if(typeof forkShow==='function'&&forkView!=='catalog')forkShow('catalog');onSearch(e.target.value);});
   inp.addEventListener('keydown', e => {
     if (e.key === 'Escape') clearSearch();
     // Down arrow from the field jumps into the results.
@@ -665,6 +665,7 @@ function markClean() {
   dirty = false;
   try { window.archivo.setDirty(false); } catch (e) {}
   updateTitleBar();
+  if(typeof forkView!=='undefined'&&forkView==='schedules')renderSchedules().catch(forkError);
 }
 
 // Run `next` only once the user has dealt with unsaved changes.
@@ -686,6 +687,7 @@ function newCatalog() {
     try { await window.archivo.newDocument(); } catch (e) {}
     DB = { disks: [] };
     docPath = null; docOpen = true;
+    if(typeof forkDocumentChanged==='function')forkDocumentChanged();
     selected = null; expanded.clear(); clearSearch();
     hideWelcome(); refreshAll(); updatePathBar(); markClean();
     toast('New catalog. Add a disk to begin.', 'info');
@@ -701,6 +703,7 @@ function openCatalog(filePath) {
       if (!res) return;
       DB = res.data;
       docPath = res.path; docOpen = true;
+      if(typeof forkDocumentChanged==='function')forkDocumentChanged();
       selected = null; expanded.clear(); clearSearch();
       hideWelcome(); refreshAll(); updatePathBar(); markClean();
       toast('Opened ' + DB.disks.length + ' disk(s).', 'ok');
@@ -742,6 +745,7 @@ function closeDatabase() {
     try { await window.archivo.closeDocument(); } catch (e) {}
     DB = { disks: [] };
     docPath = null; docOpen = false;
+    if(typeof forkDocumentChanged==='function')forkDocumentChanged();
     selected = null; expanded.clear(); clearSearch();
     renderTree(); updateInsp(); updateSB(); updatePathBar(); markClean();
     showWelcome();
@@ -1787,6 +1791,7 @@ function toast(msg,type='',ms) {
   el.className='toast '+(type||'');
   el.setAttribute('role', type==='err'||type==='warn' ? 'alert' : 'status');
   el.textContent=msg;
+  while(g('toasts').children.length>=3)g('toasts').firstElementChild.remove();
   g('toasts').appendChild(el);
   setTimeout(()=>el.remove(),ms||(type==='warn'||type==='err'?5000:3200));
 }

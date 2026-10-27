@@ -18,7 +18,10 @@ This fork adds background rescans, an offline storage map, and content-verified 
 
 ## Schedules
 
-- Open **Schedules** and link each desired source. Choose the source checkboxes, a daily time, selected weekdays, or an interval of 15 minutes–7 days.
+- Open **Schedules**. The overview shows enabled schedules and linked sources. Expand **Drives to update** to choose sources, then set a daily time, selected weekdays, or an interval of 15 minutes–7 days.
+- Large drive libraries use a compact summary and a scrollable list. Search labels, paths, categories or locations; narrow by category, physical location or link status. **Select shown** changes only eligible drives in the current filter; the mixed checkbox indicates a partial selection. Selected drives outside the filter stay selected and are counted explicitly. **Clear selection** clears the entire selection.
+- Unlinked drives cannot be scheduled until linked with **Locate source…**. Link confirmation names the catalog disk. Draft selections, frequency, weekdays and time survive source linking and switching tools. New drives are added to a saved schedule through **Edit**; they are never enrolled silently.
+- Saved schedules show their target count and frequency. Use **New schedule** for a separate rule, **Edit** to change its sources, and **Cancel edit** to discard a draft. Expand **Source links** to search or relink drives without opening a schedule form.
 - Schedules start disabled. Check **Enable this schedule** and create it when ready. Use **Run now** for an immediate test.
 - Close the window: Archivo Fork continues in the Mac menu bar or Windows system tray. Use its menu to reopen, pause schedules, run due scans, or quit. Explicit **Quit** stops scheduling. Launch at login is optional and off initially; it is available in the installed application.
 - Multiple saved catalogs can have schedules. Unsaved edits defer the affected catalog until saved. Offline sources and scans with read errors retain their previous entries. Reconnect sources and use Run now to retry.
@@ -52,10 +55,10 @@ Buttons show Locating immediately, then Sent to Finder/Explorer or a readable er
 
 ## Duplicates
 
-1. Choose disks and **Find possible copies** for an offline comparison. Exact matching sizes are candidates even when filenames differ; approximate imported sizes and empty files are excluded.
+1. Expand **Drives to compare**, using search, filters and **Select shown** for large libraries, then **Find possible copies** for an offline comparison. Exact matching sizes are candidates even when filenames differ; approximate imported sizes and empty files are excluded.
 2. Connect and link the sources, then **Verify contents**. Sampled reads narrow candidates; full SHA-256 reads establish matching content. Large media files can take time. Cancel is available in the job bar.
 3. Results identify content groups and distinguish Possible, Verified, Offline, Changed, Unreadable, Different, and Same file (hard links). Verified content groups are separate expandable cards, even when multiple content groups have the same byte size. Possible matches are labeled separately. Confirmed nonmatches and hard links appear under Show other results. Pages contain whole groups (20 per page); cleanup selections survive collapse and pagination. Export CSV records all results.
-4. Nothing is selected automatically. To test cleanup, use disposable copies first. Select verified copies, leave at least one copy per content group, and choose **Move selected copies to Trash**. A confirmation is required; contents and source identities are checked again before moving anything.
+4. Nothing is selected automatically. Selected counts and bytes update immediately. Trash stays disabled for an empty selection or if no verified copy would remain in a group; network copies cannot be selected. To test cleanup, use disposable copies first. Select verified copies, leave at least one copy per content group, and choose **Move selected copies to Trash**. A confirmation is required; contents and source identities are checked again before moving anything.
 5. Network files are inspection-only in this beta. If the OS cannot recycle a local file, it stays in place. There is no permanent-delete fallback. The surviving copy must still be connected and verified. File changes or disconnections stop cleanup.
 6. Successful cleanup updates the open catalog and marks it edited; save to retain the updated file list. Restore recycled files through Finder’s Trash or Windows Recycle Bin, then rescan.
 
@@ -73,14 +76,16 @@ Buttons show Locating immediately, then Sent to Finder/Explorer or a readable er
 
 ```sh
 npm ci
+npm run check
 npm run test:unit
 npm test
 npm run test:features
+npm run test:polish
 npm run test:background
 npm run build:mac:test   # Mac ARM64 DMG + ZIP
 npm run build:win        # Windows x64 installer + portable
 ```
 
-Node.js 22 or newer is required. UI integration uses Playwright’s Electron driver because a Browser plugin is not installed. The tests create disposable temporary catalogs and files, including an OS Trash test for one generated duplicate. No user drives are scanned by tests. Local Mac signing is discovered from Keychain; CI disables certificate discovery and produces unsigned packages. The product’s updater is disabled for these beta builds.
+Node.js 22.12 or newer is required. UI integration uses Playwright’s Electron driver because a Browser plugin is not installed. The tests create disposable temporary catalogs and files, including an OS Trash test for one generated duplicate. No user drives are scanned by tests. Local Mac signing is discovered from Keychain; CI disables certificate discovery and produces unsigned packages. The product’s updater is disabled for these beta builds.
 
 Validation distinguishes automated synthetic fixtures from physical USB/server testing. Passing CI does not establish performance on your full media archive, long-running reliability, network reconnection behavior, or distribution trust prompts.

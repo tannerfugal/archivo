@@ -13,7 +13,9 @@
     "test:unit": "node --test test/*.test.js",
     "test:features": "node test/features.js",
     "build:mac:test": "electron-builder --mac --arm64 --publish never",
-    "test:background": "node test/background.js"
+    "test:background": "node test/background.js",
+    "check": "node scripts/check.js",
+    "test:polish": "node test/polish.js"
   },
   "build": {
     "appId": "com.tannerfugal.archivofork",
@@ -124,5 +126,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/tannerfugal/archivo.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

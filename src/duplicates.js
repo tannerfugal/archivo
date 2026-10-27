@@ -36,6 +36,7 @@ async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()
     for (const item of group.items) {
       const entry={...item,id:crypto.randomUUID(),status:'Possible'};items.push(entry);
       const source=sources.get(item.diskId);
+      entry.network=source?.network===true;
       if (!source || source.error) { entry.status='Offline';entry.reason=source?.error || 'Source not linked.';continue; }
       try {
         const s=await digest(source.root,item.segments,true,cancelled);
