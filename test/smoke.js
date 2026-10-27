@@ -48,10 +48,17 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
   try {
-    await wait(3000);
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) { console.log('NO WINDOW'); app.exit(1); return; }
     const js = code => win.webContents.executeJavaScript(code, true);
+
+    // Catalog loading crosses renderer IPC and a worker. A fixed three-second
+    // delay races cold Windows startup; wait for the document we actually opened.
+    const startupDeadline = Date.now() + 20000;
+    while (Date.now() < startupDeadline) {
+      if (await js(`typeof docOpen !== 'undefined' && docOpen === true && docPath === ${JSON.stringify(CATALOG)}`)) break;
+      await wait(50);
+    }
 
     // Collect renderer errors
     await js(`window.__errs = [];
