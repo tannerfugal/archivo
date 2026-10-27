@@ -21,15 +21,27 @@
     }
     return out;
   }
-  function candidates(disks) {
+  function candidateKey(item) {
+    const name = item.name || item.segments?.at(-1);
+    if (typeof name !== 'string' || !name || !Number.isSafeInteger(item.size) || item.size <= 0) return null;
+    // Compare the entire basename, including camera clip and chunk identifiers.
+    // Case/Unicode normalization allows the same name to cross Mac/PC filesystems.
+    return JSON.stringify([item.size, name.normalize('NFC').toLowerCase()]);
+  }
+  function groupedCandidates(disks, names) {
     const groups = new Map();
     for (const item of flatten(disks)) {
       if (!item.exact || item.size === 0) continue;
-      if (!groups.has(item.size)) groups.set(item.size, []);
-      groups.get(item.size).push(item);
+      const key = names ? candidateKey(item) : item.size;
+      if (key === null) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(item);
     }
-    return [...groups].filter(([, items]) => items.length > 1).sort((a,b) => b[0] - a[0]).map(([size, items]) => ({ size, items }));
+    return [...groups.values()].filter(items => items.length > 1).sort((a,b) => b[0].size - a[0].size).map(items => ({ size: items[0].size, items }));
   }
+  function candidates(disks) { return groupedCandidates(disks, true); }
+  // Size buckets are only a work queue for reading contents, never match evidence.
+  function verificationCandidates(disks) { return groupedCandidates(disks, false); }
   function tree(disks) {
     function convert(nodes, disk, segments) {
       return (nodes || []).map(n => {
@@ -61,12 +73,14 @@
     split(sorted,x,y,w,h); return result;
   }
   function duplicateGroups(report,includeOther=false){
-    const groups=[],other=[];
-    for(const sizeGroup of report?.groups||[]){const hashes=new Map(),possible=[];
-      for(const item of sizeGroup.items){if(item.status==='Verified'&&item.hash){if(!hashes.has(item.hash))hashes.set(item.hash,[]);hashes.get(item.hash).push(item);}else if(['Possible','Offline','Changed','Unreadable'].includes(item.status))possible.push(item);else other.push(item);}
-      for(const[hash,items]of hashes)if(items.length>1)groups.push({id:'hash:'+hash,state:'Verified',size:sizeGroup.size,items,duplicateBytes:(items.length-1)*sizeGroup.size});else other.push(...items);
-      if(possible.length)groups.push({id:'possible:'+sizeGroup.size,state:'Possible matches',size:sizeGroup.size,items:possible,duplicateBytes:Math.max(0,possible.length-1)*sizeGroup.size});
+    const groups=[],other=[],hashes=new Map(),possible=new Map();
+    for(const sizeGroup of report?.groups||[])for(const item of sizeGroup.items){
+      if(item.status==='Verified'&&item.hash){if(!hashes.has(item.hash))hashes.set(item.hash,[]);hashes.get(item.hash).push(item);}
+      else if(report.mode!=='content'&&['Possible','Offline','Changed','Unreadable'].includes(item.status)&&candidateKey(item)!==null){const key=candidateKey(item);if(!possible.has(key))possible.set(key,[]);possible.get(key).push(item);}
+      else other.push(item);
     }
+    for(const[hash,items]of hashes)if(items.length>1)groups.push({id:'hash:'+hash,state:'Verified',size:items[0].size,items,duplicateBytes:(items.length-1)*items[0].size});else other.push(...items);
+    for(const[key,items]of possible)if(items.length>1)groups.push({id:'possible:'+key,state:'Possible matches',size:items[0].size,items,duplicateBytes:(items.length-1)*items[0].size});else other.push(...items);
     if(includeOther)for(const item of other)groups.push({id:'other:'+item.id,state:item.status,size:item.size,items:[item],duplicateBytes:0});
     return {groups,otherCount:other.length};
   }
@@ -97,5 +111,5 @@
     }
     draw(node.children,0,0,width,height,depth,budget,null);return result;
   }
-  return { bytes, flatten, candidates, tree, layout, nested, descendants, duplicateGroups };
+  return { bytes, flatten, candidateKey, candidates, verificationCandidates, tree, layout, nested, descendants, duplicateGroups };
 });

@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('fs');
 const crypto=require('crypto');
-const { candidates }=require('./analysis');
+const { verificationCandidates }=require('./analysis');
 const { realFile }=require('./sources');
 function stamp(s) { return [s.dev,s.ino,s.size,s.mtimeMs,s.ctimeMs].join(':'); }
 async function digest(root, segments, sample, cancelled=()=>false, progress=()=>{}) {
@@ -26,12 +26,13 @@ async function digest(root, segments, sample, cancelled=()=>false, progress=()=>
   } finally { await handle.close(); }
 }
 async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()=>{}) {
-  const groups=candidates(disks), results=[], sources=new Map(), physical=new Set();let done=0;
+  const groups=verificationCandidates(disks), results=[], sources=new Map(), physical=new Set();let done=0;
+  const result=cancelled=>({mode:'content',cancelled,groups:results});
   for (const disk of disks) {
     try { sources.set(disk.id,await resolve(bindings[disk.id])); } catch(e) { sources.set(disk.id,{error:e.message}); }
   }
   for (const group of groups) {
-    if (cancelled()) return {cancelled:true,groups:results};
+    if (cancelled()) return result(true);
     const items=[];
     for (const item of group.items) {
       const entry={...item,id:crypto.randomUUID(),status:'Possible'};items.push(entry);
@@ -44,20 +45,24 @@ async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()
         const inode=source.key+':'+s.dev+':'+s.ino;
         if (physical.has(inode)) {entry.hardlink=true;entry.status='Same file';continue;}
         physical.add(inode);entry.sample=s.hash;entry.stamp=s.stamp;
-      } catch(e) {if(cancelled()) return {cancelled:true,groups:results};entry.status=/changed/i.test(e.message)?'Changed':'Unreadable';entry.reason=e.message;}
+      } catch(e) {if(cancelled()) return result(true);entry.status=/changed/i.test(e.message)?'Changed':'Unreadable';entry.reason=e.message;}
     }
     const sampled=items.filter(i=>i.sample),sampleCounts=new Map();
     for(const item of sampled)sampleCounts.set(item.sample,(sampleCounts.get(item.sample)||0)+1);
+    const unavailable=()=>items.some(item=>['Offline','Changed','Unreadable'].includes(item.status));
+    const incompleteSamples=unavailable();
     for (const item of sampled) {
-      if (sampleCounts.get(item.sample)<2) {item.status='Different';continue;}
+      if (sampleCounts.get(item.sample)<2) {item.status=incompleteSamples?'Unverified':'Different';if(incompleteSamples)item.reason='Other same-size files could not be checked; no content match was established.';continue;}
       try {
         const full=await digest(sources.get(item.diskId).root,item.segments,false,cancelled,n=>progress({bytes:n}));
+        if(full.stamp!==item.stamp){item.status='Changed';item.reason='File changed between sampling and full verification.';continue;}
         item.hash=full.hash;item.stamp=full.stamp;item.status='Verified';
-      } catch(e) {if(cancelled()) return {cancelled:true,groups:results};item.status=/changed/i.test(e.message)?'Changed':'Unreadable';item.reason=e.message;}
+      } catch(e) {if(cancelled()) return result(true);item.status=/changed/i.test(e.message)?'Changed':'Unreadable';item.reason=e.message;}
       progress({files:++done,path:item.segments.join('/')});
     }
     const fullCounts=new Map();for(const item of items)if(item.hash)fullCounts.set(item.hash,(fullCounts.get(item.hash)||0)+1);
-    for(const item of items)if(item.hash && fullCounts.get(item.hash)<2)item.status='Different';
+    const incompleteContents=unavailable();
+    for(const item of items)if(item.hash && fullCounts.get(item.hash)<2){item.status=incompleteContents?'Unverified':'Different';if(incompleteContents)item.reason='Other same-size files could not be checked; no content match was established.';}
     results.push({size:group.size,items});
     progress({groups:results.length,total:groups.length});
   }
@@ -68,8 +73,8 @@ async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()
   }
   const verified=results.flatMap(g=>g.items).filter(i=>i.status==='Verified');
   const verifiedCounts=new Map();for(const item of verified)verifiedCounts.set(item.hash,(verifiedCounts.get(item.hash)||0)+1);
-  for(const item of verified)if(verifiedCounts.get(item.hash)<2){item.status='Possible';delete item.hash;}
-  return {groups:results,cancelled:false};
+  for(const item of verified)if(verifiedCounts.get(item.hash)<2){item.status='Unverified';item.reason='The matching source became unavailable. Verify contents again when it is connected.';delete item.hash;}
+  return result(false);
 }
 function trashSelection(report, ids) {
   if (!Array.isArray(ids) || !ids.length || new Set(ids).size!==ids.length) throw Error('Select the copies to move to Trash.');

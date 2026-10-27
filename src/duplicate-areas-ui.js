@@ -17,7 +17,7 @@ function renderDuplicateAreaSelection(host,area){
 function renderDuplicateAreas(host,report){
  const areas=report.areas||(report.areas=ArchivoDuplicateAreas.summarize(DB.disks,report));
  const total=fe('div','ft-stat',fmt(report.verifiedDuplicateBytes??ArchivoAnalysis.duplicateGroups(report).groups.filter(group=>group.state==='Verified').reduce((sum,group)=>sum+group.duplicateBytes,0))+' verified duplicate bytes');
- const hint=fe('p','ft-muted','Possible bytes are size matches only. Folder estimates overlap; they are not additive.');
+ const hint=fe('p','ft-muted','Possible bytes require the same full filename and exact size, not verified contents. Folder estimates overlap; they are not additive.');
  const count=fe('p','ft-muted');count.id='duplicate-selection-count';
  const controls=fe('div','ft-row'),sort=fe('select','ft-select');sort.setAttribute('aria-label','Sort duplicate areas');
  for(const [value,title]of [['verified','Most verified redundant space'],['possible','Most possible redundant space'],['files','Most matching files'],['coverage','Highest matching coverage']]){const option=fe('option','',title);option.value=value;sort.append(option);}sort.value=forkAreaSort;sort.onchange=()=>{forkAreaSort=sort.value;forkAreaPage=0;renderDuplicateResults();};controls.append(sort);
@@ -41,7 +41,7 @@ function renderDuplicateAreas(host,report){
 function showDuplicateAreaLocations(area){
  const locations=ArchivoDuplicateAreas.counterparts(forkDuplicateReport,area);
  showModal('Other copy locations','<div id="duplicate-area-locations"></div>',[{label:'Done',cls:'btn-p',fn:hideModal}]);
- const host=g('duplicate-area-locations');host.append(fe('p','ft-muted','Copies outside '+fpath(area)+'. Size-only matches remain possible until verified.'));
+ const host=g('duplicate-area-locations');host.append(fe('p','ft-muted','Copies outside '+fpath(area)+'. Possible matches share the full filename and exact size; verify contents to confirm them.'));
  const table=ftable(['Location','Matching files','Indexed bytes']);for(const location of locations.slice(0,100))frow(table,[fpath(location),location.files.toLocaleString(),fmt(location.bytes)]);host.append(table);
  if(locations.length>100)host.append(fe('p','ft-muted','Showing the largest 100 of '+locations.length+' locations. Review files or export CSV for all paths.'));if(!locations.length)host.append(fe('p','ft-muted','Matches are inside this area. Break it down or review its files to compare the copies.'));
 }

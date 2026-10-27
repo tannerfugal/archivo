@@ -131,7 +131,7 @@ class Service {
     return this.exclusive(verify?'duplicate verification':'duplicate search',async()=>{
       let report;
       if(verify)report=await this.jobs.run('verify',{disks,bindings:this.bindings(file,disks)},p=>this.emit('progress',p));
-      else report={groups:(await this.jobs.run('candidates',{disks})).map(g=>({...g,items:g.items.map(i=>({...i,id:crypto.randomUUID(),status:this.binding(file,i.diskId)?'Possible':'Offline'}))}))};
+      else report={mode:'metadata',groups:(await this.jobs.run('candidates',{disks})).map(g=>({...g,items:g.items.map(i=>({...i,id:crypto.randomUUID(),status:this.binding(file,i.diskId)?'Possible':'Offline'}))}))};
       Object.assign(report,await this.jobs.run('duplicate-areas',{disks,report}));
       report.id=crypto.randomUUID();report.file=file;report.fingerprint=this.catalogWatch?.file===file?this.catalogWatch.fingerprint:undefined;report.catalog=JSON.stringify(this.live);this.reports.clear();this.reports.set(report.id,report);
       return report;

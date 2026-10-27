@@ -66,14 +66,15 @@ test('large offline catalogs can be analyzed and treemap rectangles remain bound
  const tree=analysis.tree([disk('a',Array.from({length:50000},(_,i)=>node('file'+i,i+1)))]);assert.equal(tree.size,50000*50001/2);
  const layout=analysis.layout(tree.children[0].children.slice(-300),0,0,100,100);assert.equal(layout.length,300);assert.ok(layout.every(r=>r.w>0&&r.h>0&&r.x+r.w<100.00001&&r.y+r.h<100.00001));
 });
-test('duplicate candidates include renamed copies, exclude zero bytes and approximate sizes',()=>{
- const g=analysis.candidates([disk('a',[node('one',10),node('two',0),node('rounded','10 B')]),disk('b',[node('renamed',10)])]);assert.equal(g.length,1);assert.equal(g[0].items.length,2);
+test('offline duplicate candidates require full names and exact bytes; verification can inspect renamed files',()=>{
+ const disks=[disk('a',[node('one',10),node('two',0),node('rounded','10 B')]),disk('b',[node('ONE',10),node('renamed',10)])];
+ const g=analysis.candidates(disks);assert.equal(g.length,1);assert.equal(g[0].items.length,2);assert.ok(g[0].items.every(item=>item.name.toLowerCase()==='one'));assert.equal(analysis.verificationCandidates(disks)[0].items.length,3);
 });
 test('content verification distinguishes equal size, renamed copies, hardlinks, offline and changed files',async t=>{
  const root=temporary(t);for(const[name,body]of[['one','same'],['renamed','same'],['different','nope'],['changed','bigger']])fs.writeFileSync(path.join(root,name),body);fs.linkSync(path.join(root,'one'),path.join(root,'hardlink'));
  const d=disk('a',['one','renamed','different','changed','hardlink'].map(n=>node(n,4))),offline=disk('b',[node('off',4)]);
  const report=await verify([d,offline],{a:{key:'a',root}},binding=>{if(!binding)throw Error('offline');return binding;});
- const items=report.groups[0].items;assert.equal(items.filter(i=>i.status==='Verified').length,2);assert.equal(items.filter(i=>i.status==='Same file').length,1);assert.equal(items.find(i=>i.name==='different').status,'Different');assert.equal(items.find(i=>i.name==='changed').status,'Changed');assert.equal(items.find(i=>i.name==='off').status,'Offline');
+ const items=report.groups[0].items;assert.equal(items.filter(i=>i.status==='Verified').length,2);assert.equal(items.filter(i=>i.status==='Same file').length,1);assert.equal(items.find(i=>i.name==='different').status,'Unverified');assert.equal(items.find(i=>i.name==='changed').status,'Changed');assert.equal(items.find(i=>i.name==='off').status,'Offline');assert.equal(analysis.duplicateGroups(report).groups.length,1);
  const copies=items.filter(i=>i.status==='Verified');assert.equal(trashSelection(report,[copies[0].id]).length,1);assert.throws(()=>trashSelection(report,copies.map(i=>i.id)),/Keep at least one/);assert.throws(()=>trashSelection(report,[items.find(i=>i.status==='Offline').id]),/Only verified/);
 });
 test('hashing is cancellable without cleanup and rejects links',async t=>{

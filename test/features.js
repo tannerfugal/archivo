@@ -8,6 +8,8 @@ const {scanVolume}=require('../src/scanner'),io=require('../src/catalog-io');
   fs.mkdirSync(a);fs.mkdirSync(b);fs.mkdirSync(path.join(a,'Project'));fs.mkdirSync(path.join(a,'Audio'));
   fs.writeFileSync(path.join(a,'Project','master.mov'),Buffer.alloc(16000000,1));fs.writeFileSync(path.join(b,'renamed-master.mov'),Buffer.alloc(16000000,1));
   fs.writeFileSync(path.join(a,'Project','proxy.mp4'),Buffer.alloc(9000000,2));fs.writeFileSync(path.join(a,'Audio','mix.wav'),Buffer.alloc(4000000,3));fs.writeFileSync(path.join(b,'different.mov'),Buffer.alloc(16000000,4));
+  // Regression: unrelated RED chunks can share an exact byte count.
+  fs.writeFileSync(path.join(a,'A296_C097_0417P8_005.R3D'),Buffer.alloc(1048576,5));fs.writeFileSync(path.join(b,'A298_C001_0420C0_001.R3D'),Buffer.alloc(1048576,6));
   const disks=[];for(const[id,label,dir]of[['a','Camera originals',a],['b','Archive copy',b]]){const scan=await scanVolume(dir);disks.push({id,label,total:'1 TB',free:'200 GB',scanned:new Date().toISOString(),file_count:scan.fileCount,tree:scan.tree});}io.write(file,{disks});
   let app;
   try{
@@ -43,7 +45,10 @@ const {scanVolume}=require('../src/scanner'),io=require('../src/catalog-io');
     await page.getByRole('button',{name:'Storage Map',exact:true}).click();
     if(process.env.ARCHIVO_SCREENSHOTS){fs.mkdirSync(process.env.ARCHIVO_SCREENSHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.ARCHIVO_SCREENSHOTS,'storage-map.png')});}
     await page.getByRole('button',{name:'Duplicates',exact:true}).click();await page.getByRole('button',{name:'Find possible copies',exact:true}).click();await page.getByRole('button',{name:'File matches',exact:true}).click();await expect(page.locator('#duplicate-results')).toContainText('match group(s)',{timeout:60000});await expect(page.locator('#duplicate-results input:checked')).toHaveCount(0);
+    await expect(page.locator('#duplicate-results .duplicate-group')).toHaveCount(0);assert.equal(await page.evaluate(()=>forkDuplicateReport.mode),'metadata');await expect(page.locator('#fork-panel')).toContainText('same full filename and exact size');
+    if(process.env.ARCHIVO_SCREENSHOTS)await page.screenshot({path:path.join(process.env.ARCHIVO_SCREENSHOTS,'duplicates-no-size-only-candidates.png')});
     await page.getByRole('button',{name:'Verify contents',exact:true}).click();await expect(page.locator('#duplicate-results .verified')).toHaveCount(2,{timeout:120000});await expect(page.locator('#duplicate-results')).not.toContainText('Different');await expect(page.locator('#duplicate-results .duplicate-group')).toHaveCount(1);await page.getByRole('checkbox',{name:'Show other results',exact:false}).check();await expect(page.locator('#duplicate-results')).toContainText('Different');await page.getByRole('checkbox',{name:'Show other results',exact:false}).uncheck();
+    await expect(page.locator('#duplicate-results .duplicate-group')).toContainText('renamed-master.mov');await expect(page.locator('#duplicate-results .duplicate-group')).not.toContainText('.R3D');
     await expect(page.locator('#duplicate-results input:checked')).toHaveCount(0);await expect(page.locator('#duplicate-results input[data-copy-id]:not([disabled])')).toHaveCount(2);
     if(process.env.ARCHIVO_SCREENSHOTS)await page.screenshot({path:path.join(process.env.ARCHIVO_SCREENSHOTS,'duplicates.png')});
     const group=page.locator('#duplicate-results .duplicate-group').first();await group.locator('input').first().check();await group.locator('summary').click();await group.locator('summary').click();await expect(group.locator('input').first()).toBeChecked();await group.locator('input').first().uncheck();

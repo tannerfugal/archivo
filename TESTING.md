@@ -1,4 +1,4 @@
-# Archivo Fork 1.5.0 beta 3 — test guide
+# Archivo Fork 1.5.0 beta 4 — test guide
 
 This fork adds background rescans, an offline storage map, and content-verified duplicate finding to archivo v1.4.0. Original archivo is © 2026 just edit; fork additions are GPL-3.0-or-later.
 
@@ -55,7 +55,7 @@ Buttons show Locating immediately, then Sent to Finder/Explorer or a readable er
 
 ## Duplicate folder areas
 
-The default **Folder areas** view ranks top-level folders and loose root files after finding candidates or verifying contents. Each row shows matching file coverage, verified redundant bytes, possible bytes, and files with verified matches outside the area. Possible bytes are size matches, not proof of identical contents. Imported approximate/unknown sizes and zero-byte files remain excluded from candidate matching.
+The default **Folder areas** view ranks top-level folders and loose root files after finding candidates or verifying contents. Each row shows matching file coverage, verified redundant bytes, possible bytes, and files with verified matches outside the area. Possible bytes require matching full filenames and exact sizes, not proof of identical contents. Unrelated same-sized files do not contribute to coverage, possible bytes or counterpart locations. Imported approximate/unknown sizes and zero-byte files remain excluded from candidate matching.
 
 - Sort by verified space, possible space, matching files or coverage. Pages contain 20 areas. **Break down** explores the next folder level; **All drives** returns to the overview.
 - **Other copy locations** lists paths outside the chosen area. **Review files** opens the original content groups for that area, with the other copies available for comparison and full report selections preserved.
@@ -69,9 +69,9 @@ Read [SHARED_CATALOGS.md](docs/SHARED_CATALOGS.md) for the Windows scheduler / m
 
 ## Duplicates
 
-1. Expand **Drives to compare**, using search, filters and **Select shown** for large libraries, then **Find possible copies** for an offline comparison. Exact matching sizes are candidates even when filenames differ; approximate imported sizes and empty files are excluded.
-2. Connect and link the sources, then **Verify contents**. Sampled reads narrow candidates; full SHA-256 reads establish matching content. Large media files can take time. Cancel is available in the job bar.
-3. Results identify content groups and distinguish Possible, Verified, Offline, Changed, Unreadable, Different, and Same file (hard links). Verified content groups are separate expandable cards, even when multiple content groups have the same byte size. Possible matches are labeled separately. Confirmed nonmatches and hard links appear under Show other results. Pages contain whole groups (20 per page); cleanup selections survive collapse and pagination. Export CSV records all results.
+1. Expand **Drives to compare**, using search, filters and **Select shown** for large libraries, then **Find possible copies** for an offline comparison. Candidates require the same complete filename (case-insensitive, with Unicode normalization) and exact byte size. Clip identifiers, chunk numbers and extensions are retained: unrelated RED chunks are not candidates just because they share a fixed size. Approximate imported sizes and empty files are excluded. Existing catalogs do not need a rescan for this change; rerun the comparison. Filename/size matches are still unverified candidates.
+2. Connect and link the sources, then **Verify contents**. This pass also compares differently named files with equal sizes, so genuine renamed copies remain discoverable. Sampled reads reject obvious nonmatches; only full SHA-256 reads establish matching content. Matching samples alone are never sufficient. A file changed between sampling and the full read is rejected. Large media files can take time. Cancel is available in the job bar.
+3. The offline pass shows possible groups by full filename and exact size. After content verification, only confirmed content groups appear as matches. Offline, Changed, Unreadable, Unverified, Different and Same file (hard links) results are available under **Show other results** and in CSV; unavailable files do not inflate verified folder coverage. Separate full-content matches get separate cards even when their sizes are equal. Pages contain whole groups (20 per page); cleanup selections survive collapse and pagination. Export CSV records all results.
 4. Nothing is selected automatically. Selected counts and bytes update immediately. Trash stays disabled for an empty selection or if no verified copy would remain in a group; network copies cannot be selected. To test cleanup, use disposable copies first. Select verified copies, leave at least one copy per content group, and choose **Move selected copies to Trash**. A confirmation is required; contents and source identities are checked again before moving anything.
 5. Network files are inspection-only in this beta. If the OS cannot recycle a local file, it stays in place. There is no permanent-delete fallback. The surviving copy must still be connected and verified. File changes or disconnections stop cleanup.
 6. Successful cleanup updates the open catalog and marks it edited; save to retain the updated file list. Restore recycled files through Finder’s Trash or Windows Recycle Bin, then rescan.

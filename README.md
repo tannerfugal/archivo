@@ -2,6 +2,12 @@
 
 A fork of [noar-justedit/archivo](https://github.com/noar-justedit/archivo), based on v1.4.0. Catalog archive drives once and search them while they are disconnected.
 
+## Fixed in 1.5.0 beta 4
+
+- Offline duplicate candidates require the same complete filename (case-insensitive) and exact byte size. Equal-sized RED chunks with different clip/chunk names are excluded.
+- Content verification still finds renamed copies. Only full-content matches appear as verified groups; unavailable and unmatched files remain under Other results. Folder areas and counterpart locations use the same match evidence.
+- Changes between sampling and full verification invalidate the file. No catalog rescan is needed for the stricter offline comparison; run Find possible copies again.
+
 ## Added in 1.5.0 beta 3
 
 - Ranked duplicate folder areas with coverage, verified/potential redundant space, nested breakdowns, other copy locations and guarded bulk file selection.
@@ -10,7 +16,7 @@ A fork of [noar-justedit/archivo](https://github.com/noar-justedit/archivo), bas
 - Compact drive managers for schedules, duplicate comparisons and bulk organization: search, category/location filters, Select shown, retained hidden selections and bounded lists for large libraries.
 - Schedule summaries, collapsible source links, preserved drafts while linking or switching tools, and live duplicate cleanup counts with survivor/network guards.
 
-Use beta 3 packages for these features. Previously downloaded beta 2 installers predate this polish pass.
+Use beta 4 packages for these features and the duplicate matching fix. Previously downloaded beta 2 installers predate this polish pass.
 
 ## Added in 1.5.0 beta 2
 
