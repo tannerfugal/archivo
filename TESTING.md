@@ -1,4 +1,4 @@
-# Archivo Fork 1.5.0 beta 2 — test guide
+# Archivo Fork 1.5.0 beta 3 — test guide
 
 This fork adds background rescans, an offline storage map, and content-verified duplicate finding to archivo v1.4.0. Original archivo is © 2026 just edit; fork additions are GPL-3.0-or-later.
 

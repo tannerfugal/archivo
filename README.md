@@ -2,7 +2,7 @@
 
 A fork of [noar-justedit/archivo](https://github.com/noar-justedit/archivo), based on v1.4.0. Catalog archive drives once and search them while they are disconnected.
 
-## Development polish (unreleased)
+## Added in 1.5.0 beta 3
 
 - Ranked duplicate folder areas with coverage, verified/potential redundant space, nested breakdowns, other copy locations and guarded bulk file selection.
 - Cooperative shared-catalog saves, stale-edit protection and update/reload notices. See [shared server setup](docs/SHARED_CATALOGS.md).
@@ -10,7 +10,7 @@ A fork of [noar-justedit/archivo](https://github.com/noar-justedit/archivo), bas
 - Compact drive managers for schedules, duplicate comparisons and bulk organization: search, category/location filters, Select shown, retained hidden selections and bounded lists for large libraries.
 - Schedule summaries, collapsible source links, preserved drafts while linking or switching tools, and live duplicate cleanup counts with survivor/network guards.
 
-These changes are available from source. Previously downloaded beta 2 installers predate this polish pass.
+Use beta 3 packages for these features. Previously downloaded beta 2 installers predate this polish pass.
 
 ## Added in 1.5.0 beta 2
 
