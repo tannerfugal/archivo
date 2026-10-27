@@ -9,7 +9,7 @@ const {trashSelection}=require('./duplicates');
 class Service {
   constructor({directory,document,emit,trash,confirmTrash}) {
     this.directory=directory;this.file=path.join(directory,'background.json');this.jobs=new Jobs();this.revealJobs=new Jobs();this.searcher=new (require('./search-service').SearchService)();this.contextJSON='';this.revealTimings=[];
-    this.document=document;this.emit=emit;this.trash=trash;this.confirmTrash=confirmTrash;
+    this.document=document;this.emit=emit;this.trash=trash;this.confirmTrash=confirmTrash;this.monitorJobs=new Jobs();this.catalogWatch=null;this.catalogCheck=null;
     this.busy=null;this.reports=new Map();this.tokens=new Map();this.live={disks:[]};
     try {this.settings=JSON.parse(fs.readFileSync(this.file,'utf8'));} catch {this.settings={};}
     this.settings={bindings:{},schedules:[],activity:[],paused:false,...this.settings};
@@ -30,9 +30,21 @@ class Service {
     try{return await fn();}finally{this.busy=null;this.emit('status',this.status());}
   }
   cancel() { this.cancelRequested=true; this.jobs.cancel(); }
+  watchCatalog(file,fingerprint,stamp){this.catalogWatch=file?{file,fingerprint,stamp,changed:false,fullCheck:Date.now()}:null;this.emit('catalog-status',{path:file,changed:false});}
+  async checkCatalog(force=false){
+    const watch=this.catalogWatch;if(!watch)return {changed:false};
+    if(this.catalogCheck)return this.catalogCheck;
+    const check=async()=>{try{
+      const result=await this.monitorJobs.run('probe',{file:watch.file,stamp:force||Date.now()-watch.fullCheck>=300000?undefined:watch.stamp});
+      if(this.catalogWatch!==watch)return {changed:false};
+      watch.stamp=result.stamp;if(result.fingerprint){watch.changed=result.fingerprint!==watch.fingerprint;watch.fullCheck=Date.now();}
+      const status={path:watch.file,changed:watch.changed};this.emit('catalog-status',status);return status;
+    }catch(e){const status={path:watch.file,changed:watch.changed,unavailable:true};if(this.catalogWatch===watch)this.emit('catalog-status',status);return status;}};
+    this.catalogCheck=check();try{return await this.catalogCheck;}finally{this.catalogCheck=null;}
+  }
   async scan(root,binding) {
     return this.exclusive('scan',async()=>{
-      const res=await this.jobs.run('scan',{root,binding,exclude:[this.document().path,this.document().path && this.document().path+'.backups',this.directory].filter(Boolean)},p=>this.emit('scan',p));
+      const res=await this.jobs.run('scan',{root,binding,exclude:[this.document().path,this.document().path && this.document().path+'.backups',this.document().path && this.document().path+'.lock',this.directory].filter(Boolean)},p=>this.emit('scan',p));
       if(!res.cancelled){res.sourceToken=crypto.randomUUID();this.tokens.set(res.sourceToken,res.source);if(this.tokens.size>32)this.tokens.delete(this.tokens.keys().next().value);}
       return res;
     });
@@ -84,7 +96,7 @@ class Service {
           if(this.cancelRequested){notes.push('Cancelled');break;}
           const disk=snapshot.data.disks.find(d=>d.id===id);if(!disk){notes.push('Removed catalog entry skipped');continue;}
           try {
-            const result=await this.jobs.run('scan',{binding:this.binding(s.file,id),exclude:[s.file,s.file+'.backups',this.directory]},p=>this.emit('progress',{...p,label:disk.label}));
+            const result=await this.jobs.run('scan',{binding:this.binding(s.file,id),exclude:[s.file,s.file+'.backups',s.file+'.lock',this.directory]},p=>this.emit('progress',{...p,label:disk.label}));
             if(result.cancelled) {notes.push(disk.label+': cancelled');break;}
             if(result.skipped?.count){notes.push(disk.label+': incomplete scan; previous entry preserved');continue;}
             Object.assign(disk,{tree:result.tree,file_count:result.fileCount,scanned:new Date().toISOString(),total:this.formatBytes(result.source.total_bytes),free:this.formatBytes(result.source.free_bytes)});
@@ -120,7 +132,8 @@ class Service {
       let report;
       if(verify)report=await this.jobs.run('verify',{disks,bindings:this.bindings(file,disks)},p=>this.emit('progress',p));
       else report={groups:(await this.jobs.run('candidates',{disks})).map(g=>({...g,items:g.items.map(i=>({...i,id:crypto.randomUUID(),status:this.binding(file,i.diskId)?'Possible':'Offline'}))}))};
-      report.id=crypto.randomUUID();report.file=file;report.catalog=JSON.stringify(this.live);this.reports.clear();this.reports.set(report.id,report);
+      Object.assign(report,await this.jobs.run('duplicate-areas',{disks,report}));
+      report.id=crypto.randomUUID();report.file=file;report.fingerprint=this.catalogWatch?.file===file?this.catalogWatch.fingerprint:undefined;report.catalog=JSON.stringify(this.live);this.reports.clear();this.reports.set(report.id,report);
       return report;
     });
   }
@@ -130,20 +143,25 @@ class Service {
     const groups=trashSelection(report,ids);
     return this.exclusive('duplicate cleanup',async()=>{
       if(!await this.confirmTrash(ids.length))return {cancelled:true};
+      const lease=report.file?await this.monitorJobs.run('catalog-lock',{file:report.file,expected:report.fingerprint}):null;
+      try{
       const removed=[],failures=[];
       for(const group of groups) {
         try {
           // Fresh full reads, including a keeper, are mandatory. Cached hashes never authorize cleanup.
-          const verified=[];
-          for(const item of [...group.keep,...group.remove]) {
+          const verified=new Map();let keeper,lastError;
+          for(const item of group.keep){try{if(this.cancelRequested)throw Error('Cleanup cancelled.');const result=await this.jobs.run('digest',{binding:this.binding(report.file,item.diskId),segments:item.segments},p=>this.emit('progress',p));if(result.hash!==group.hash||result.stamp!==item.stamp)throw Error('A surviving copy changed since verification.');keeper={item,result};break;}catch(e){lastError=e;if(this.cancelRequested)throw e;}}
+          if(!keeper)throw Error('No surviving verified copy is available: '+(lastError?.message||'verify again'));
+          for(const item of group.remove) {
+            if(this.cancelRequested)throw Error('Cleanup cancelled.');
             const result=await this.jobs.run('digest',{binding:this.binding(report.file,item.diskId),segments:item.segments},p=>this.emit('progress',p));
             if(result.hash!==group.hash || result.stamp!==item.stamp)throw Error('A copy changed since verification. Run verification again.');
             if(result.source.network && group.remove.includes(item))throw Error('Network copies cannot be safely recycled here. Use Finder or Explorer.');
-            verified.push({item,result});
+            verified.set(item.id,{item,result});
           }
           for(const item of group.remove) {
             if(this.cancelRequested)throw Error('Cleanup cancelled.');
-            const v=verified.find(v=>v.item===item),keeper=verified.find(v=>group.keep.includes(v.item));
+            const v=verified.get(item.id);
             // Re-resolve both identities and recheck path/stat immediately before each OS trash request.
             for(const check of [keeper,v]) {
               const fresh=await this.jobs.run('file',{binding:this.binding(report.file,check.item.diskId),segments:check.item.segments});
@@ -153,15 +171,11 @@ class Service {
           }
         }catch(e){failures.push(e.message);}
       }
-      for(const item of removed) {
-        const disk=this.live.disks.find(d=>d.id===item.diskId);if(!disk)continue;
-        let nodes=disk.tree;const ancestors=[];
-        for(const segment of item.segments.slice(0,-1)){const n=nodes.find(n=>n.name===segment && n.type==='dir');if(!n){nodes=null;break;}ancestors.push(n);nodes=n.children;}
-        if(nodes){const i=nodes.findIndex(n=>n.name===item.segments.at(-1));if(i>=0){nodes.splice(i,1);disk.file_count=Math.max(0,disk.file_count-1);for(const a of ancestors)a.size=Math.max(0,(typeof a.size==='number'?a.size:0)-item.size);}}
-      }
+      require('./duplicates').pruneCopies(this.live,removed);
       this.reports.clear();if(removed.length){this.context(this.live);this.emit('cleanup',{data:this.live});}
       this.record('Duplicate cleanup',failures.length?'attention':'complete',removed.length+' copies moved to Trash'+(failures.length?' · '+failures.join('; '):''));
       return {removed:removed.length,failures};
+      }finally{if(lease)await this.monitorJobs.run('catalog-unlock',{lease});}
     });
   }
 }

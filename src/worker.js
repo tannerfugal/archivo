@@ -18,6 +18,7 @@ const progress=p=>parentPort.postMessage({progress:p});
       result.source=source;break;
     }
     case 'candidates': result=require('./analysis').candidates(args.disks);break;
+    case 'duplicate-areas':result={areas:require('./duplicate-areas').summarize(args.disks,args.report),verifiedDuplicateBytes:require('./analysis').duplicateGroups(args.report).groups.filter(group=>group.state==='Verified').reduce((sum,group)=>sum+group.duplicateBytes,0)};break;
     case 'verify':result=await verify(args.disks,args.bindings,sources.resolve,cancelled,progress);break;
     case 'digest': {
       const source=sources.resolve(args.binding);
@@ -34,6 +35,10 @@ const progress=p=>parentPort.postMessage({progress:p});
       result={file:sources.realFile(source.root,args.segments),source};break;
     }
     case 'read':result=io.snapshot(args.file);break;
+    case 'probe':result=io.probe(args.file,args.stamp);break;
+    case 'destination':try{result={expected:io.fingerprint(args.file)};}catch(e){if(e.code!=='ENOENT')throw e;result={expected:null};}break;
+    case 'catalog-lock':{const lease=io.acquireLock(args.file);try{if(args.expected!==undefined&&io.fingerprint(args.file)!==args.expected)throw Error('The shared catalog changed. Reload it and verify duplicates again before cleanup.');result=lease;}catch(e){io.releaseLock(lease);throw e;}break;}
+    case 'catalog-unlock':io.releaseLock(args.lease);result=true;break;
     case 'write':result={fingerprint:io.write(args.file,args.data,args.expected,args.backups)};break;
     default:throw Error('Unknown background operation.');
   }

@@ -12,7 +12,7 @@ function fcheck(text,value,checked=true){const label=fe('label','ft-check'),inpu
 function fhead(title,description,actions=[]){const head=fe('div','ft-head'),left=fe('div');left.append(fe('h1','',title),fe('p','',description));head.append(left);const right=fe('div','ft-actions');right.append(...actions);head.append(right);g('fork-panel').append(head);}
 async function forkSync(){await fa.context(DB);forkState=await fa.toolsStatus();return forkState;}
 function forkRefresh(){if(fa?.context)fa.context(DB).catch(forkError);forkMapSelected=null;forkLargestPage=0;if(forkView==='map'){forkMapStack=[];renderStorageMap();}forkDuplicateReport=null;if(typeof forkDuplicateSelections!=='undefined')forkDuplicateSelections.clear();if(forkView==='duplicates')renderDuplicates();}
-function forkDocumentChanged(){categoryScope='';locationScope='';forkScheduleDraft=null;forkScheduleForm=null;forkSourcePickerState={};forkEditSchedule=null;forkDuplicateDriveIds=null;forkMapSelected=null;forkMapStack=[];forkDuplicateSelections.clear();forkShow('catalog');}
+function forkDocumentChanged(){g('catalog-shared-status').hidden=true;categoryScope='';locationScope='';forkScheduleDraft=null;forkScheduleForm=null;forkSourcePickerState={};forkEditSchedule=null;forkDuplicateDriveIds=null;forkMapSelected=null;forkMapStack=[];forkDuplicateSelections.clear();forkShow('catalog');}
 function forkShow(view){
   if(forkView==='schedules')rememberScheduleDraft();
   forkView=view;
@@ -82,20 +82,23 @@ function renderDuplicates(){
   if(!docOpen||!DB.disks.length){fempty('Open a catalog to find duplicates','Scan your drives or server folders first.');return;}
   const choices=createDrivePicker({disks:scopedDisks(),ids:forkDuplicateDriveIds??scopedDisks().map(d=>d.id),label:'Drives to compare',onchange:ids=>{forkDuplicateDriveIds=ids;forkDuplicateReport=null;forkDuplicateSelections.clear();renderDuplicateResults();}});choices.id='duplicate-disks';panel.append(choices);
   const actions=fe('div','ft-actions'),exportButton=fb('Export CSV',exportDuplicates),trash=fb('Move selected copies to Trash',trashDuplicates,'ft-danger'),find=fb('Find possible copies',()=>runDuplicates(false)),verify=fb('Verify contents',()=>runDuplicates(true),'ft-primary');find.id='duplicate-find';verify.id='duplicate-verify';exportButton.id='duplicate-export';trash.id='duplicate-trash';actions.append(find,verify,exportButton,trash);panel.append(actions);
-  panel.append(fe('p','ft-note','Select copies explicitly after verification. “Verified” means full SHA-256 contents matched. One connected, verified copy must remain. Network copies are inspection-only.'));
+  panel.append(fe('p','ft-note','Verify contents before cleanup. A connected, verified copy must remain. Network copies are inspection-only.'));
   const results=fe('div');results.id='duplicate-results';panel.append(results);renderDuplicateResults();applyForkBusy();
 }
 async function runDuplicates(verify){
   const ids=g('duplicate-disks').selectedIds();if(!ids.length)throw Error('Choose at least one drive.');forkDuplicateDriveIds=ids;await forkSync();
   g('duplicate-results').replaceChildren(fe('div','ft-empty',verify?'Reading file contents… You can cancel from the job bar.':'Finding candidate files…'));
-  try{forkDuplicateSelections.clear();forkDuplicateCollapsed.clear();const report=await fa.findDuplicates(ids,verify);if(JSON.stringify(forkDuplicateDriveIds)!==JSON.stringify(ids))return;forkDuplicateReport=report;forkDuplicatePage=0;renderDuplicateResults();}catch(e){g('duplicate-results')?.replaceChildren(fe('div','ft-empty','Search did not finish.'));throw e;}
+  try{forkDuplicateSelections.clear();forkDuplicateCollapsed.clear();const report=await fa.findDuplicates(ids,verify);if(JSON.stringify(forkDuplicateDriveIds)!==JSON.stringify(ids))return;forkDuplicateReport=report;forkDuplicateArea=null;forkAreaParent=null;forkAreaPage=0;forkDuplicatePage=0;renderDuplicateResults();}catch(e){g('duplicate-results')?.replaceChildren(fe('div','ft-empty','Search did not finish.'));throw e;}
 }
 const forkDuplicateSelections=new Set(),forkDuplicateCollapsed=new Set();let forkDuplicateOthers=false;
 function renderDuplicateResults(){
  const el=g('duplicate-results');if(!el)return;el.replaceChildren();const report=forkDuplicateReport;
  updateDuplicateActions();
  if(!report){el.append(fe('div','ft-empty','Choose drives, then find possible copies or verify their contents. Zero-byte files are excluded.'));return;}
- const derived=ArchivoAnalysis.duplicateGroups(report,forkDuplicateOthers),groups=derived.groups,verified=ArchivoAnalysis.duplicateGroups(report).groups.filter(g=>g.state==='Verified');
+ renderDuplicateViewControls(el);
+ if(forkDuplicateMode==='folders'){renderDuplicateAreas(el,report);return;}
+ const derived=ArchivoAnalysis.duplicateGroups(report,forkDuplicateOthers),groups=derived.groups.filter(group=>!forkDuplicateArea||group.items.some(item=>ArchivoDuplicateAreas.contains(item,forkDuplicateArea))),verified=ArchivoAnalysis.duplicateGroups(report).groups.filter(g=>g.state==='Verified');
+ if(forkDuplicateArea)renderDuplicateAreaSelection(el,forkDuplicateArea);
  el.append(fe('div','ft-stat',fmt(verified.reduce((s,g)=>s+g.duplicateBytes,0))+' verified duplicate bytes'));
  const other=fcheck('Show other results ('+derived.otherCount+' nonmatches / hard links)','other',forkDuplicateOthers);other.querySelector('input').onchange=e=>{forkDuplicateOthers=e.target.checked;forkDuplicatePage=0;renderDuplicateResults();};const count=fe('p','ft-muted');count.id='duplicate-selection-count';el.append(other,fe('p','ft-muted',groups.length+' match group(s)'+(report.cancelled?' · Verification cancelled; completed results only.':'')),count);updateDuplicateActions();
  if(!groups.length){el.append(fe('div','ft-empty','No matching copies in this view. Other results can be inspected above.'));return;}
@@ -204,8 +207,8 @@ fa.onFork('status',status=>{
 fa.onFork('progress',p=>{if(p.path)g('fork-job-status').textContent=(p.label?p.label+': ':'')+p.path;else if(p.groups)g('fork-job-status').textContent='Verified '+p.groups+' / '+p.total+' groups';});
 fa.onFork('catalog',async result=>{
   if(result.path!==docPath)return;
-  if(dirty){toast('A background update is ready. Save or reopen the catalog to review it.','warn');return;}
-  DB=result.data;refreshAll();markClean();if(forkView==='schedules')await renderSchedules();
+  if(dirty){await fa.context(DB);forkCatalogStatus({path:docPath,changed:true});toast('A background update is ready. Save a copy of your edits or reload the latest catalog.','warn');return;}
+  DB=result.data;refreshAll();markClean();await fa.acceptCatalog(result.path,result.fingerprint);if(forkView==='schedules')await renderSchedules();
 });
 fa.onFork('cleanup',result=>{DB=result.data;markDirty();refreshAll();});
 fa.toolsStatus().then(status=>{forkBusy=status.busy;updateUiState();}).catch(forkError);

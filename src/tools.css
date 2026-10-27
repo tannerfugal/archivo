@@ -53,3 +53,11 @@
 .ft-button:disabled,.drive-picker input:disabled{opacity:.4;cursor:default}.ft-button:focus-visible,.drive-picker summary:focus-visible,.ft-disclosure summary:focus-visible{outline:2px solid var(--vlt);outline-offset:2px}
 .ft-input:focus-visible,.ft-select:focus-visible{outline:1px solid var(--vlt);outline-offset:1px}
 @media(max-width:1150px){.drive-picker-filters{grid-template-columns:1fr 1fr}.drive-picker-filters input{grid-column:1/-1}.ft-head{align-items:flex-start;flex-wrap:wrap}.schedule-overview{gap:8px}.schedule-overview>div{padding:10px}.ft-table td,.ft-table th{padding:8px}.drive-picker-summary{font-size:10px}}
+
+.duplicate-view-tabs{margin:18px 0 10px}.duplicate-view-tabs button[aria-pressed=true]{background:var(--ins);box-shadow:inset 0 0 0 1px var(--text3)}
+.duplicate-area-context{padding:14px;border-radius:8px;background:var(--card);margin:12px 0}.duplicate-area-context>p{margin:8px 0 12px}
+.duplicate-areas-table th:first-child{width:30%}.duplicate-areas-table th:nth-child(2){width:19%}.duplicate-areas-table th:nth-child(3){width:24%}.duplicate-areas-table .ft-actions{align-items:flex-start;flex-direction:column}
+#catalog-shared-status{margin:0 16px 10px;padding:10px 12px;border-radius:8px;background:var(--card);display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text2);flex-shrink:0}
+#catalog-shared-message{flex:1;min-width:0}#catalog-shared-status .ft-button{white-space:nowrap}#fork-check-catalog{font-size:11px}
+@media(max-width:1150px){#fork-nav{gap:2px}#fork-nav>button{padding:8px;font-size:11px}#fork-job-status{max-width:140px}.duplicate-areas-table th:first-child{width:27%}.duplicate-areas-table th:nth-child(3){width:25%}#catalog-shared-status{flex-wrap:wrap}#catalog-shared-message{flex-basis:100%}}
+.duplicate-area-overview{display:flex;gap:18px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin:12px 0 4px}.duplicate-area-overview .ft-stat{font-size:20px;margin:0}.duplicate-area-overview .ft-row{margin:0;gap:8px;align-items:center}.duplicate-areas-table .ft-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.duplicate-areas-table .ft-actions button{text-align:left;white-space:normal;padding:5px 6px;line-height:1.4}.duplicate-areas-table td{padding:12px 8px}

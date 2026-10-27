@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('archivo', {
   context: data => ipcRenderer.invoke('fork:context', data),
   searchCatalog: query => ipcRenderer.invoke('fork:search', query),
   toolsStatus: () => ipcRenderer.invoke('fork:status'),
+  checkCatalog: () => ipcRenderer.invoke('fork:catalog-check'),
+  acceptCatalog: (file,fingerprint) => ipcRenderer.invoke('fork:catalog-applied',file,fingerprint),
   linkScan: (diskId, token) => ipcRenderer.invoke('fork:link-scan', diskId, token),
   resolveSource: diskId => ipcRenderer.invoke('fork:resolve', diskId),
   scanBound: diskId => ipcRenderer.invoke('fork:scan-bound', diskId),
@@ -83,7 +85,7 @@ contextBridge.exposeInMainWorld('archivo', {
   trashCopies: (reportId, ids) => ipcRenderer.invoke('fork:trash', reportId, ids),
   showBackups: () => ipcRenderer.invoke('fork:backups'),
   onFork: (kind, cb) => {
-    if (!['status','scan','progress','catalog','cleanup','view'].includes(kind)) return;
+    if (!['status','scan','progress','catalog','cleanup','view','catalog-status'].includes(kind)) return;
     ipcRenderer.on('fork:' + kind, (_, data) => cb(data));
   },
   platform: process.platform,

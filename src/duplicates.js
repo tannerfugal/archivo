@@ -73,14 +73,26 @@ async function verify(disks, bindings, resolve, cancelled=()=>false, progress=()
 }
 function trashSelection(report, ids) {
   if (!Array.isArray(ids) || !ids.length || new Set(ids).size!==ids.length) throw Error('Select the copies to move to Trash.');
-  const all=report.groups.flatMap(g=>g.items), selected=ids.map(id=>all.find(i=>i.id===id));
+  const byId=new Map(),byHash=new Map(),selectedIds=new Set(ids),removeByHash=new Map();
+  for(const group of report.groups)for(const item of group.items){byId.set(item.id,item);if(item.status==='Verified'&&item.hash){if(!byHash.has(item.hash))byHash.set(item.hash,[]);byHash.get(item.hash).push(item);}}
+  const selected=ids.map(id=>byId.get(id));
   if (selected.some(i=>!i || i.status!=='Verified' || !i.hash)) throw Error('Only verified matching copies can be moved to Trash.');
+  if(selected.some(item=>item.network))throw Error('Network copies are inspection-only.');
+  for(const item of selected){if(!removeByHash.has(item.hash))removeByHash.set(item.hash,[]);removeByHash.get(item.hash).push(item);}
   const groups=[];
-  for (const hash of new Set(selected.map(i=>i.hash))) {
-    const copies=all.filter(i=>i.hash===hash && i.status==='Verified'), remove=selected.filter(i=>i.hash===hash), keep=copies.filter(i=>!ids.includes(i.id));
+  for (const [hash,remove] of removeByHash) {
+    const keep=byHash.get(hash).filter(item=>!selectedIds.has(item.id));
     if (!keep.length) throw Error('Keep at least one verified copy in each group.');
     groups.push({hash,remove,keep});
   }
   return groups;
 }
-module.exports={digest,verify,stamp,trashSelection};
+function pruneCopies(catalog,removed){
+ const disks=new Map();for(const item of removed){if(!disks.has(item.diskId))disks.set(item.diskId,new Map());disks.get(item.diskId).set(JSON.stringify(item.segments),item.size);}
+ for(const disk of catalog.disks){const paths=disks.get(disk.id);if(!paths)continue;
+  function prune(nodes,parent){let bytes=0,files=0;const kept=[];for(const node of nodes){const segments=parent.concat(node.name),size=paths.get(JSON.stringify(segments));if(node.type!=='dir'&&size!==undefined){bytes+=size;files++;continue;}if(node.type==='dir'){const result=prune(node.children||[],segments);node.children=result.kept;bytes+=result.bytes;files+=result.files;if(typeof node.size==='number')node.size=Math.max(0,node.size-result.bytes);}kept.push(node);}return{kept,bytes,files};}
+  const result=prune(disk.tree,[]);disk.tree=result.kept;disk.file_count=Math.max(0,(disk.file_count||0)-result.files);
+ }
+ return catalog;
+}
+module.exports={digest,verify,stamp,trashSelection,pruneCopies};

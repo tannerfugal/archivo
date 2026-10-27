@@ -72,6 +72,7 @@ let hideNetwork = false;
 let docPath     = null;  // file the catalog was opened from / saved to (null = never saved)
 let docOpen     = false; // a catalog is open (vs. the welcome screen)
 let dirty       = false; // unsaved changes since the last save
+let catalogRevision=0;
 
 const V  = new Set(['mp4','mov','avi','mkv','mxf','r3d','braw','mts','m2ts','wmv','prproj','drp','fcpbundle','aaf']);
 const I  = new Set(['jpg','jpeg','png','tif','tiff','raw','cr2','nef','arw','psd','ai','eps','svg','gif','webp','dpx','exr','heic']);
@@ -656,6 +657,7 @@ function updateTitleBar() {
 }
 
 function markDirty() {
+  catalogRevision++;
   if(typeof searchInvalidate==='function')searchInvalidate();
   if (window.archivo?.context) window.archivo.context(DB).catch(() => {});
   if (!dirty) { dirty = true; try { window.archivo.setDirty(true); } catch (e) {} }
@@ -665,6 +667,7 @@ function markClean() {
   dirty = false;
   try { window.archivo.setDirty(false); } catch (e) {}
   updateTitleBar();
+  updateUiState();
   if(typeof forkView!=='undefined'&&forkView==='schedules')renderSchedules().catch(forkError);
 }
 
@@ -715,28 +718,33 @@ function openCatalog(filePath) {
 async function saveCatalog() {
   if (!docOpen) { toast('No catalog open.', 'err'); return false; }
   try {
+    const revision=catalogRevision;
     const res = await window.archivo.saveCatalog(DB);
     if (res && res.needsPath) return await saveCatalogAs();
     if (!res || !res.path) return false;
-    docPath = res.path; markClean(); refreshRecents();
+    docPath = res.path;if(catalogRevision===revision)markClean();else{dirty=true;window.archivo.setDirty(true);window.archivo.context(DB).catch(forkError);updateTitleBar();}refreshRecents();
+    if(typeof forkCatalogStatus==='function')forkCatalogStatus({path:docPath,changed:false});
     toast('Saved · ' + docName(), 'ok');
     return true;
-  } catch (e) { toast('Save error: ' + e, 'err'); return false; }
+  } catch (e) { if(typeof forkError==='function')forkError(e);else toast('Save error: ' + e, 'err');return false; }
 }
 
-async function saveCatalogAs() {
+async function saveCatalogAs(asCopy=false) {
   if (!docOpen) { toast('No catalog open.', 'err'); return false; }
   try {
+    const revision=catalogRevision;
     const base = docName().replace(/\.(archivo|json|gz)$/i, '');
     const res  = await window.archivo.saveCatalogAs({
       catalog: DB,
-      suggestedName: (base === 'Untitled catalog' ? 'archivo_catalog' : base) + '.archivo',
+      copy:asCopy===true,
+      suggestedName: (base === 'Untitled catalog' ? 'archivo_catalog' : base) + (asCopy===true?' copy':'') + '.archivo',
     });
     if (!res || !res.path) return false;
-    docPath = res.path; markClean(); refreshRecents();
+    docPath = res.path;if(catalogRevision===revision)markClean();else{dirty=true;window.archivo.setDirty(true);window.archivo.context(DB).catch(forkError);updateTitleBar();}refreshRecents();
+    if(typeof forkCatalogStatus==='function')forkCatalogStatus({path:docPath,changed:false});
     toast('Saved · ' + docName(), 'ok');
     return true;
-  } catch (e) { toast('Save error: ' + e, 'err'); return false; }
+  } catch (e) { if(typeof forkError==='function')forkError(e);else toast('Save error: ' + e, 'err');return false; }
 }
 
 function closeDatabase() {
@@ -1725,6 +1733,7 @@ function updateUiState() {
   const set = (id, on) => { const b = g(id); if (b) b.disabled = !on; };
   set('btn-pick-source', open && !scanning);
   set('btn-add-disk',    open && !locked);
+  set('fork-check-catalog',open&&!!docPath&&!locked);
   set('btn-import',      !locked);
   set('btn-export',      open && !locked);
   set('btn-close',       open && !locked);

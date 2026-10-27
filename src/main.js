@@ -37,12 +37,14 @@ const MAX_CATALOG_BYTES = 512 * 1024 * 1024;
 app.setName('Archivo Fork');
 if (process.platform === 'win32') app.setAppUserModelId('com.tannerfugal.archivofork');
 app.setPath('userData', process.env.ARCHIVO_TEST_DATA || path.join(app.getPath('appData'), 'Archivo Fork'));
-let mainWindow, tray, timer, quitting = false, docFingerprint;
+let mainWindow, tray, timer, quitting = false, docFingerprint, pendingCatalogRevision=null;
 let service;
 function emitFork(kind, data) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('fork:' + kind, data);
   if (kind === 'scan' && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('scan:progress', data);
-  if (kind === 'catalog' && currentPath === data.path) docFingerprint = data.fingerprint;
+  // The renderer may have started editing while the write worker was running.
+  // Advance its save baseline only after it acknowledges applying this snapshot.
+  if (kind === 'catalog' && currentPath === data.path) pendingCatalogRevision={path:data.path,fingerprint:data.fingerprint};
   if (kind === 'status') updateTray();
 }
 function showWindow() {
@@ -215,6 +217,7 @@ app.whenReady().then(() => {
   if (!pendingOpenPath) pendingOpenPath = argvCatalog(process.argv);
   buildMenu();
   createWindow();
+  const catalogTimer=setInterval(()=>service.checkCatalog().catch(console.error),15000);catalogTimer.unref();
   if (!process.env.ARCHIVO_TEST_MODE) {
     const icon = nativeImage.createFromPath(path.join(__dirname, 'assets', 'app-icon.png')).resize({ width: 18, height: 18 });
     tray = new Tray(icon); tray.on('click', showWindow); updateTray();
@@ -224,7 +227,7 @@ app.whenReady().then(() => {
   }
 });
 app.on('before-quit', () => { quitting = true; });
-app.on('will-quit', () => { clearInterval(timer); service.jobs.stop();service.revealJobs.stop();service.searcher.stop(); });
+app.on('will-quit', () => { clearInterval(timer); service.jobs.stop();service.revealJobs.stop();service.monitorJobs.stop();service.searcher.stop(); });
 
 app.on('window-all-closed', () => {
   if (quitting || process.env.ARCHIVO_TEST_MODE) app.quit();
@@ -302,8 +305,8 @@ ipcMain.handle('recents:clear', () => clearRecents());
 // The renderer tells us when the catalog becomes dirty/clean and when it
 // starts a new or closes the current document; we own the path and title.
 ipcMain.handle('doc:set-dirty', (_, d) => { docDirty = !!d; applyDocState(); return true; });
-ipcMain.handle('doc:new',   () => { requireIdle(); service.clearSession(); currentPath = null; docFingerprint = undefined; docDirty = false; applyDocState(); return true; });
-ipcMain.handle('doc:close', () => { requireIdle(); service.clearSession(); currentPath = null; docFingerprint = undefined; docDirty = false; applyDocState(); return true; });
+ipcMain.handle('doc:new',   () => { requireIdle(); service.clearSession(); currentPath = null; pendingCatalogRevision=null;service.watchCatalog(null);docFingerprint = undefined; docDirty = false; applyDocState(); return true; });
+ipcMain.handle('doc:close', () => { requireIdle(); service.clearSession(); currentPath = null; pendingCatalogRevision=null;service.watchCatalog(null);docFingerprint = undefined; docDirty = false; applyDocState(); return true; });
 
 // What the menu needs to know to grey out what makes no sense right now:
 // no catalog open, no disk to export, a scan running.
@@ -370,6 +373,8 @@ ipcMain.handle('catalog:open', async (_, filePath) => {
   const loaded = await service.exclusive('opening catalog', () => service.jobs.run('read', { file: fp }));
   const data = loaded.data; docFingerprint = loaded.fingerprint; service.clearSession(); service.context(data);
   currentPath = fp;
+  pendingCatalogRevision=null;
+  service.watchCatalog(fp,docFingerprint,loaded.stamp);
   docDirty    = false;
   applyDocState();
   addRecent(fp);
@@ -383,17 +388,19 @@ ipcMain.handle('catalog:save', async (_, catalog) => {
   const clean = sanitizeCatalog(catalog);
   const written = await service.exclusive('saving catalog', () => service.jobs.run('write', { file: currentPath, data: clean, expected: docFingerprint, backups: true }));
   docFingerprint = written.fingerprint; service.context(clean);
+  pendingCatalogRevision=null;
+  service.watchCatalog(currentPath,docFingerprint);
   docDirty = false;
   applyDocState();
   addRecent(currentPath);
   return { path: currentPath };
 });
 
-ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName }) => {
+ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName, copy }) => {
   requireIdle();
   const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
-    title:       'Save Archivo Fork Catalog',
-    defaultPath: currentPath || path.join(defaultSaveDir(), suggestedName || 'archivo_catalog.archivo'),
+    title:       copy?'Save a separate catalog copy':'Save Archivo Fork Catalog',
+    defaultPath: copy?path.join(currentPath?path.dirname(currentPath):defaultSaveDir(),suggestedName||'catalog copy.archivo'):currentPath || path.join(defaultSaveDir(), suggestedName || 'archivo_catalog.archivo'),
     filters:     [
       { name: 'archivo Catalog (compressed)', extensions: ['archivo'] },
       { name: 'JSON (uncompressed)', extensions: ['json'] },
@@ -402,9 +409,11 @@ ipcMain.handle('catalog:save-as', async (_, { catalog, suggestedName }) => {
   if (canceled || !filePath) return null;
   requireIdle();
   const clean = sanitizeCatalog(catalog);
-  const written = await service.exclusive('saving catalog', () => service.jobs.run('write', { file: filePath, data: clean, expected: filePath === currentPath ? docFingerprint : undefined, backups: true }));
+  const written = await service.exclusive('saving catalog', async () => {const expected=copy?null:filePath===currentPath?docFingerprint:(await service.jobs.run('destination',{file:filePath})).expected;return service.jobs.run('write',{file:filePath,data:clean,expected,backups:true});});
   service.migrate(currentPath, filePath, clean.disks); service.context(clean);
   docFingerprint = written.fingerprint; currentPath = filePath;
+  pendingCatalogRevision=null;
+  service.watchCatalog(currentPath,docFingerprint);
   docDirty    = false;
   applyDocState();
   addRecent(filePath);
@@ -430,6 +439,8 @@ ipcMain.handle('volumes:scan', (_, root) => service.scan(root));
 ipcMain.handle('fork:search', (_, query) => service.searcher.search(query));
 ipcMain.handle('fork:context', (_, data) => service.context(data));
 ipcMain.handle('fork:status', () => ({ ...service.status(), sources: service.sourceStatus(), login: loginSettings().openAtLogin }));
+ipcMain.handle('fork:catalog-check', () => service.checkCatalog(true));
+ipcMain.handle('fork:catalog-applied',(_,file,fingerprint)=>{if(currentPath!==file||pendingCatalogRevision?.path!==file||pendingCatalogRevision.fingerprint!==fingerprint)return false;docFingerprint=fingerprint;pendingCatalogRevision=null;service.watchCatalog(file,fingerprint);return true;});
 ipcMain.handle('fork:link-scan', (_, diskId, token) => service.linkScanned(diskId, token));
 ipcMain.handle('fork:resolve', (_, diskId) => service.resolve(diskId));
 ipcMain.handle('fork:scan-bound', (_, diskId) => service.scan(null, service.binding(currentPath, diskId)));

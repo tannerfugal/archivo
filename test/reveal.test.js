@@ -15,4 +15,7 @@ test('Windows UNC Reveal measures a real local SMB share when the runner support
  try{ps(`New-SmbShare -Name ${literal(share)} -Path ${literal(root)} -FullAccess $env:USERNAME -ErrorAction Stop | Out-Null`);}catch(e){fs.rmSync(root,{recursive:true,force:true});t.skip('Runner cannot create a disposable SMB share: '+e.message.slice(0,150));return;}
  t.after(()=>{try{ps(`Remove-SmbShare -Name ${literal(share)} -Force -ErrorAction Stop`);}finally{fs.rmSync(root,{recursive:true,force:true,maxRetries:10,retryDelay:100});}});
  const unc='\\\\localhost\\'+share;const binding=sources.identify(unc,[]),at=performance.now(),fresh=sources.resolveTarget(binding),file=sources.realFile(fresh.root,['network.txt']);assert.equal(fs.readFileSync(file,'utf8'),'network test');console.log('UNC source + path validation (ms)',performance.now()-at);assert.equal(fresh.network,true);
+ const io=require('../src/catalog-io'),catalog=path.join(root,'Shared.archivo'),remote=unc+'\\Shared.archivo';io.write(catalog,{disks:[]});const original=io.fingerprint(remote),release=io.lock(catalog);
+ try{assert.equal(io.read(remote).disks.length,0);assert.throws(()=>io.write(remote,{disks:[]},original,true),/save locked/);}finally{release();}
+ io.write(remote,{disks:[{id:'a',label:'SMB writer',tree:[]}]},original,true);assert.equal(io.read(catalog).disks[0].label,'SMB writer');assert.throws(()=>io.write(catalog,{disks:[]},original,true),/changed/);console.log('PASS SMB: local and UNC writers coordinate; readers work during a lock and stale snapshots cannot overwrite.');
 });

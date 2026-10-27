@@ -53,6 +53,20 @@ Buttons show Locating immediately, then Sent to Finder/Explorer or a readable er
 - Map totals are the catalog’s indexed **logical bytes**, not allocated filesystem space. Scan date, drive capacity, and free space are shown separately. Approximate or missing imported sizes are labeled; rescan to obtain exact file sizes.
 - The scanner retains upstream exclusions for dot-prefixed items, known OS/cache folders, and symbolic links. Nested mounted volumes should be cataloged as separate sources. A scheduled catalog excludes itself, its backups, and the application’s settings folder from its own scan.
 
+## Duplicate folder areas
+
+The default **Folder areas** view ranks top-level folders and loose root files after finding candidates or verifying contents. Each row shows matching file coverage, verified redundant bytes, possible bytes, and files with verified matches outside the area. Possible bytes are size matches, not proof of identical contents. Imported approximate/unknown sizes and zero-byte files remain excluded from candidate matching.
+
+- Sort by verified space, possible space, matching files or coverage. Pages contain 20 areas. **Break down** explores the next folder level; **All drives** returns to the overview.
+- **Other copy locations** lists paths outside the chosen area. **Review files** opens the original content groups for that area, with the other copies available for comparison and full report selections preserved.
+- **Select verified copies** selects eligible local files together, only when an unselected verified copy remains outside the area. Previously selected copies affect which files can safely be added. The result reports any skipped copies. **Clear cleanup selection** clears all selected copies.
+- Area estimates overlap: each of two duplicated folders can show the same reclaimable bytes. Do not add those rows. The report total counts redundant verified content once. A 100% file match is not a promise that permissions, timestamps, empty folders, excluded files, or other metadata match.
+- Internal duplicates keep their parent area visible, but area selection requires an outside keeper. Break down or use **File matches** to choose individual copies instead. Folder selection never deletes a directory or its unique contents.
+
+## Shared server access
+
+Read [SHARED_CATALOGS.md](docs/SHARED_CATALOGS.md) for the Windows scheduler / multiple-client setup, permissions, update notices, conflict handling and lock recovery. Many readers can share a file. Updated writers coordinate through a sidecar lock; stale edits are refused rather than merged. Validate the real SMB server and client accounts before team deployment.
+
 ## Duplicates
 
 1. Expand **Drives to compare**, using search, filters and **Select shown** for large libraries, then **Find possible copies** for an offline comparison. Exact matching sizes are candidates even when filenames differ; approximate imported sizes and empty files are excluded.
@@ -81,6 +95,7 @@ npm run test:unit
 npm test
 npm run test:features
 npm run test:polish
+npm run test:advanced
 npm run test:background
 npm run build:mac:test   # Mac ARM64 DMG + ZIP
 npm run build:win        # Windows x64 installer + portable

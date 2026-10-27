@@ -890,6 +890,7 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
   <button type="button" id="fork-locate">Locate source…</button>
   <span id="fork-job-status" role="status">Ready</span><button type="button" id="fork-cancel" hidden>Cancel job</button>
 </nav>
+<div id="catalog-shared-status" hidden role="status"><span id="catalog-shared-message"></span><button type="button" class="ft-button" id="catalog-reload">Reload latest</button><button type="button" class="ft-button" id="catalog-save-copy">Save a copy…</button></div>
 <div id="scope-chips" aria-label="Active organization scope"></div>
 <div id="workspace"><aside id="organization-sidebar" aria-label="Catalog organization" hidden></aside>
 <section id="fork-panel" hidden></section>
@@ -1061,11 +1062,14 @@ button:focus-visible,.btn:focus-visible,.cx:focus-visible{outline:none;box-shado
 <div id="toasts"></div>
 
 <script src="analysis.js"></script>
+<script src="duplicate-areas.js"></script>
 <script src="organization.js"></script>
 <script src="app.js"></script>
 <script src="tools-ui.js"></script>
+<script src="duplicate-areas-ui.js"></script>
 <script src="drive-picker.js"></script>
 <script src="organization-ui.js"></script>
 <script src="search-ui.js"></script>
+<script src="shared-ui.js"></script>
 </body>
 </html>

@@ -4,6 +4,9 @@ A fork of [noar-justedit/archivo](https://github.com/noar-justedit/archivo), bas
 
 ## Development polish (unreleased)
 
+- Ranked duplicate folder areas with coverage, verified/potential redundant space, nested breakdowns, other copy locations and guarded bulk file selection.
+- Cooperative shared-catalog saves, stale-edit protection and update/reload notices. See [shared server setup](docs/SHARED_CATALOGS.md).
+
 - Compact drive managers for schedules, duplicate comparisons and bulk organization: search, category/location filters, Select shown, retained hidden selections and bounded lists for large libraries.
 - Schedule summaries, collapsible source links, preserved drafts while linking or switching tools, and live duplicate cleanup counts with survivor/network guards.
 
@@ -47,6 +50,7 @@ npm run test:unit
 npm test
 npm run test:features
 npm run test:polish
+npm run test:advanced
 npm run test:background
 npm run build:mac:test
 npm run build:win
